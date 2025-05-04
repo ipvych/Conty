@@ -73,6 +73,10 @@ if [ -z "$INSIDE_BOOTSTRAP" ]; then
 		mount -o ro --rbind /dev "$bootstrap"/dev
 		mount none -t devpts "$bootstrap"/dev/pts
 		mount none -t tmpfs "$bootstrap"/dev/shm
+		if [ -d /var/cache/pacman/pkg ]; then
+			mkdir -p "$bootstrap"/var/cache/pacman/host_pkg
+			mount -o ro --bind /var/cache/pacman/pkg "$bootstrap"/var/cache/pacman/host_pkg
+		fi
 		rm -f "$bootstrap"/etc/resolv.conf
 		cp /etc/resolv.conf "$bootstrap"/etc/resolv.conf
 		# Default machine-id is unitialized and systemd-tmpfiles throws some warnings
@@ -156,8 +160,10 @@ if [ "${#AUR_PACKAGES[@]}" -ne 0 ]; then
 fi
 info "Enabling parallel downloads."
 sed -i 's/#ParallelDownloads = 5/ParallelDownloads = 3/g' /etc/pacman.conf
+info "Enabling fetch of packages from host pacman cache"
+sed -i 's!#CacheDir.*!CacheDir = /var/cache/pacman/pkg /var/cache/pacman/host_pkg!' /etc/pacman.conf
 info "Disabling extraction of nvidia firmware and man pages"
-sed -i 's/#NoExtract   =/NoExtract   = usr\/lib\/firmware\/nvidia\/\* usr\/share\/man\/\*/' /etc/pacman.conf
+sed -i 's!#NoExtract.*!NoExtract = usr/lib/firmware/nvidia/\* usr/share/man/\*!' /etc/pacman.conf
 info "Enabling multilib repository"
 echo '
 [multilib]
