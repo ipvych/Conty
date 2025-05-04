@@ -15,7 +15,9 @@ stage() {
 info() { NESTING_LEVEL=$((NESTING_LEVEL + 1)) stage "$@"; }
 
 check_command_available() {
-	for cmd in "$@"; do ! command -v "$cmd" >&- && missing_executables+=("$cmd"); done
+	for cmd in "$@"; do
+		! command -v "$cmd" &>/dev/null && missing_executables+=("$cmd");
+	done
 	if [ "${#missing_executables[@]}" -ne 0 ]; then
 		info "Following commands are required: ${missing_executables[*]}"
 		exit 1
@@ -111,8 +113,8 @@ install_aur_packages() {
 	echo 'aurbuilder ALL=(ALL) NOPASSWD: /usr/bin/pacman' \
 		| install -Dm0440 /dev/fd/0 /etc/sudoers.d/aurbuilder
 
-	pushd /home/aurbuilder >/dev/null
-	if ! pacman -Q yay-bin 2>/dev/null; then
+	pushd /home/aurbuilder &>/dev/null
+	if ! pacman -Q yay-bin &>/dev/null; then
 		if [ -n "$ENABLE_CHAOTIC_AUR" ]; then
 			info "Installing base-devel and yay"
 			pacman --noconfirm --needed -S base-devel yay
@@ -122,9 +124,9 @@ install_aur_packages() {
 			info "Building yay-bin"
 			sudo -u aurbuilder -- curl -LO 'https://aur.archlinux.org/cgit/aur.git/snapshot/yay-bin.tar.gz'
 			sudo -u aurbuilder -- tar -xf yay-bin.tar.gz
-			pushd yay-bin >/dev/null
+			pushd yay-bin &>/dev/null
 			sudo -u aurbuilder -- makepkg --noconfirm -sri
-			popd >/dev/null
+			popd &>/dev/null
 		fi
 	fi
 	for p in "$@"; do
@@ -133,10 +135,10 @@ install_aur_packages() {
 	done
 
 	info "Cleaning up"
-	popd >/dev/null
+	popd &>/dev/null
 	# GPG leaves hanging processes when package with signing keys is installed
 	pkill -SIGKILL -u aurbuilder || true
-	userdel -r aurbuilder 2>/dev/null
+	userdel -r aurbuilder &>/dev/null
 	rm /etc/sudoers.d/aurbuilder
 }
 
