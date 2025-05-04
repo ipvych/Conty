@@ -66,7 +66,7 @@ if [ -z "$INSIDE_BOOTSTRAP" ]; then
 	# shellcheck disable=2317
 	prepare_bootstrap() {
 		mount --bind "$bootstrap"/ "$bootstrap"/
-		mount --rbind /proc "$bootstrap"/proc
+		mount -t proc proc "$bootstrap"/proc
 		mount --rbind /dev "$bootstrap"/dev
 		mount none -t devpts "$bootstrap"/dev/pts
 		mount none -t tmpfs "$bootstrap"/dev/shm
