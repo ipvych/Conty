@@ -248,7 +248,7 @@ if [ "${#AUR_PACKAGES[@]}" -ne 0 ]; then
 fi
 
 stage "Clearing pacman cache"
-yes y | pacman -Scc &>/dev/null
+rm -rf /var/cache/pacman/pkg
 
 stage "Enabling font hinting"
 mkdir -p /etc/fonts/conf.d
