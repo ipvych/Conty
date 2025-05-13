@@ -73,12 +73,11 @@ if [ -z "$INSIDE_BOOTSTRAP" ]; then
 		mount -o ro --rbind /dev "$bootstrap"/dev
 		mount none -t devpts "$bootstrap"/dev/pts
 		mount none -t tmpfs "$bootstrap"/dev/shm
+		mount --bind /etc/resolv.conf "$bootstrap"/etc/resolv.conf
 		if [ -d /var/cache/pacman/pkg ]; then
 			mkdir -p "$bootstrap"/var/cache/pacman/host_pkg
 			mount -o ro --bind /var/cache/pacman/pkg "$bootstrap"/var/cache/pacman/host_pkg
 		fi
-		rm -f "$bootstrap"/etc/resolv.conf
-		cp /etc/resolv.conf "$bootstrap"/etc/resolv.conf
 		# Default machine-id is unitialized and systemd-tmpfiles throws some warnings
 		# about it so initialize it to a value here
 		rm -r "$bootstrap"/etc/machine-id
@@ -98,7 +97,7 @@ if [ -z "$INSIDE_BOOTSTRAP" ]; then
 	export bootstrap script_dir
 	export -f prepare_bootstrap run_bootstrap
 	info "Entering bootstrap namespace"
-	if run_unshared bash -c "prepare_bootstrap; run_bootstrap"; then
+	if run_unshared bash -c "prepare_bootstrap && run_bootstrap"; then
 		info "Done!"
 		exit
 	else

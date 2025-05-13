@@ -17,6 +17,7 @@ enter_namespace() {
 	mount --rbind /dev "$bootstrap"/dev
 	mount none -t devpts "$bootstrap"/dev/pts
 	mount none -t tmpfs "$bootstrap"/dev/shm
+	mount -o ro --bind /etc/resolv.conf "$bootstrap"/etc/resolv.conf
 	chroot "$bootstrap" /usr/bin/env -i USER='root' HOME='/root' /bin/bash -c 'source /etc/profile; exec bash'
 }
 
