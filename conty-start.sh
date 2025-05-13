@@ -8,8 +8,6 @@ unset LD_PRELOAD LD_LIBRARY_PATH
 LC_ALL_ORIG="${LC_ALL}"
 export LC_ALL=C
 
-export PATH="/usr/sbin:${PATH}"
-
 msg_root="
 Do not run this script as root!
 
@@ -26,17 +24,6 @@ fi
 # Conty version
 script_version="1.28"
 
-# Important variables to manually adjust after modification!
-# Needed to avoid problems with mounting due to an incorrect offset.
-#
-# If you build Conty without some of the components, you can set their
-# size to 0
-init_size=50000
-bash_size=1752808
-script_size=42559
-busybox_size=1181592
-utils_size=4393102
-
 # Full path to the script
 if [ -n "${BASH_SOURCE[0]}" ]; then
 	script_literal="${BASH_SOURCE[0]}"
@@ -49,55 +36,13 @@ else
 fi
 script_name="$(basename "${script_literal}")"
 script="$(readlink -f "${script_literal}")"
-
-# Check if head supports -c argument
-
-unset HEAD_C_SUPPORTED
-head -c 0 /dev/null &>/dev/null && HEAD_C_SUPPORTED=1
-
-# MD5 of the first 4 MB and the last 1 MB of the script
-if [ "${HEAD_C_SUPPORTED}" = 1 ]; then
-	script_md5="$(head -c 4000000 "${script}" | md5sum | head -c 7)"_"$(tail -c 1000000 "${script}" | md5sum | head -c 7)"
-else
-	script_md5="$(dd if="${script}" bs=4000000 count=1 2>/dev/null | md5sum | cut -c1-7)"_"$(dd if="${script}" bs=1000000 skip=100 count=1 2>/dev/null | md5sum | cut -c1-7)"
-fi
-
 script_id="$$"
-
-# Working directory where the utils will be extracted
-# And where the image will be mounted
-# The default path is /tmp/conty_username_scriptmd5
-# And if /tmp is mounted with noexec, the default path
-# is ~/.local/share/Conty/conty_username_scriptmd5
-conty_dir_name=conty_"${USER}"_"${script_md5}"
-
-if  [ -z "${BASE_DIR}" ]; then
-	export working_dir=/tmp/"${conty_dir_name}"
-else
-	export working_dir="${BASE_DIR}"/"${conty_dir_name}"
-fi
-
-if [ "${USE_SYS_UTILS}" != 1 ] && [[ "${busybox_size}" -gt 0 ]]; then
-	busybox_bin_dir="${working_dir}"/busybox_bins
-	busybox_path="${busybox_bin_dir}"/busybox
-
-	if [ ! -f "${busybox_bin_dir}"/echo ]; then
-		mkdir -p "${busybox_bin_dir}"
-
-		if [ "${HEAD_C_SUPPORTED}" = 1 ]; then
-			tail -c +$((init_size+bash_size+script_size+1)) "${script}" | head -c "${busybox_size}" > "${busybox_path}"
-		else
-			dd if="${script}" of="${busybox_path}" bs=1 skip=$((init_size+bash_size+script_size)) count="${busybox_size}" 2>/dev/null
-		fi
-
-		chmod +x "${busybox_path}" 2>/dev/null
-		"${busybox_path}" --install -s "${busybox_bin_dir}" &>/dev/null
-	fi
-
-	if "${busybox_bin_dir}"/echo &>/dev/null; then
-		export PATH="${busybox_bin_dir}:${PATH}"
-	fi
-fi
+# MD5 of the first 4 MB and the last 1 MB of the script
+script_md5="$(head -c 4000000 "${script}" | md5sum | head -c 7)"_"$(tail -c 1000000 "${script}" | md5sum | head -c 7)"
+conty_home="${XDG_DATA_HOME:-$HOME/.local/share}/conty"
+image="$conty_home/content/image"
+working_dir="$conty_home/run_$script_md5"
+mkdir -p "$working_dir"
 
 # Help output
 msg_help="
@@ -124,10 +69,6 @@ Arguments:
 
   -m    Mount/unmount the image
         The image will be mounted if it's not, unmounted otherwise.
-        Mount point can be changed with the BASE_DIR env variable
-        (the default is /tmp).
-
-  -o    Show the image offset
 
   -v    Display version of this script
 
@@ -138,10 +79,6 @@ bubblewrap, so all bubblewrap arguments are supported as well.
 
 
 Environment variables:
-  BASE_DIR          Sets a custom directory where Conty will extract its
-                    builtin utilities and mount the image.
-                    The default is /tmp.
-
   DISABLE_NET       Disables network access.
 
   DISABLE_X11       Disables access to X server.
@@ -231,17 +168,15 @@ else
 	mount_point="${working_dir}"/mnt
 fi
 
-export overlayfs_dir="${HOME}"/.local/share/Conty/overlayfs_"${script_md5}"
+export overlayfs_dir="$conty_home/overlayfs"
 export nvidia_drivers_dir="${overlayfs_dir}"/nvidia
 
 export overlayfs_shared_dir="${HOME}"/.local/share/Conty/overlayfs_shared
 export nvidia_drivers_shared_dir="${overlayfs_shared_dir}"/nvidia
 
-# Offset where the image is stored
-offset=$((init_size+bash_size+script_size+busybox_size+utils_size))
 
 # Detect if the image is compressed with DwarFS or SquashFS
-if [ "$(tail -c +$((offset+1)) "${script}" | head -c 6)" = "DWARFS" ]; then
+if [ "$(head -c 6 "$image")" = "DWARFS" ]; then
 	dwarfs_image=1
 fi
 
@@ -255,40 +190,15 @@ fi
 
 if [ -z "${script_is_symlink}" ]; then
     if [ -t 0 ] && ([ "$1" = "-h" ] || [ -z "$1" ]); then
-        echo "${msg_help}"
-        exit
+        exec echo "${msg_help}"
     elif [ "$1" = "-v" ]; then
-        echo "${script_version}"
-        exit
-    elif [ "$1" = "-o" ]; then
-        echo "${offset}"
-        exit
+        exec echo "${script_version}"
     fi
 fi
 
 show_msg () {
 	if [ "${QUIET_MODE}" != 1 ]; then
 		echo "$@"
-	fi
-}
-
-exec_test () {
-	mkdir -p "${working_dir}"
-
-	exec_test_file="${working_dir}"/exec_test
-
-	rm -f "${exec_test_file}"
-	touch "${exec_test_file}"
-	chmod +x "${exec_test_file}"
-
-	[ -x "${exec_test_file}" ]
-}
-
-launch_wrapper () {
-	if [ "${USE_SYS_UTILS}" = 1 ]; then
-		"$@"
-	else
-		"${working_dir}"/utils/ld-linux-x86-64.so.2 --library-path "${working_dir}"/utils "$@"
 	fi
 }
 
@@ -356,11 +266,11 @@ mount_overlayfs () {
 	mkdir -p "${nvidia_drivers_dir}"
 
 	if [ ! "$(ls "${overlayfs_dir}"/merged 2>/dev/null)" ]; then
-		if command -v "${unionfs_fuse}" 1>/dev/null; then
+		if command -v unionfs 1>/dev/null; then
 			if [ "${1}" = "share_nvidia" ]; then
-				launch_wrapper "${unionfs_fuse}" -o relaxed_permissions,cow,noatime "${overlayfs_dir}"/up=RW:"${overlayfs_shared_dir}"/up=RO:"${mount_point}"=RO "${overlayfs_dir}"/merged
+				unionfs -o relaxed_permissions,cow,noatime "${overlayfs_dir}"/up=RW:"${overlayfs_shared_dir}"/up=RO:"${mount_point}"=RO "${overlayfs_dir}"/merged
 			else
-				launch_wrapper "${unionfs_fuse}" -o relaxed_permissions,cow,noatime "${overlayfs_dir}"/up=RW:"${mount_point}"=RO "${overlayfs_dir}"/merged
+				unionfs -o relaxed_permissions,cow,noatime "${overlayfs_dir}"/up=RW:"${mount_point}"=RO "${overlayfs_dir}"/merged
 			fi
 		else
 			echo "unionfs-fuse not found"
@@ -439,7 +349,6 @@ fi
 
 # Set the dwarfs block cache size depending on how much RAM is available
 # Also set the number of workers depending on the number of CPU cores
-
 dwarfs_cache_size="128M"
 dwarfs_num_workers="2"
 
@@ -473,135 +382,25 @@ if [ "${dwarfs_image}" = 1 ]; then
 	fi
 fi
 
-# Extract utils.tar.gz
-mkdir -p "${working_dir}"
-
-if [ "${USE_SYS_UTILS}" != 1 ] && [[ "${utils_size}" -gt 0 ]]; then
-	# Check if filesystem of the working_dir is mounted without noexec
-	if ! exec_test; then
-		if [ -z "${BASE_DIR}" ]; then
-			export working_dir="${HOME}"/.local/share/Conty/"${conty_dir_name}"
-
-			if [ -z "${CUSTOM_MNT}" ]; then
-				mount_point="${working_dir}"/mnt
-			fi
-		fi
-
-		if ! exec_test; then
-			echo "Seems like /tmp is mounted with noexec or you don't have write access!"
-			echo "Please remount it without noexec or set BASE_DIR to a different location."
-
-			exit 1
-		fi
-	fi
-
-	if ! command -v tar 1>/dev/null || ! command -v gzip 1>/dev/null; then
-		echo "Please install tar and gzip and run the script again."
-		exit 1
-	fi
-
-	if [ "${dwarfs_image}" = 1 ]; then
-		mount_tool="${working_dir}"/utils/dwarfs"${fuse_version}"
-		extraction_tool="${working_dir}"/utils/dwarfsextract
-		compression_tool="${working_dir}"/utils/mkdwarfs
-	else
-		mount_tool="${working_dir}"/utils/squashfuse"${fuse_version}"
-		extraction_tool="${working_dir}"/utils/unsquashfs
-		compression_tool="${working_dir}"/utils/mksquashfs
-	fi
-
-	bwrap="${working_dir}"/utils/bwrap
-	unionfs_fuse="${working_dir}"/utils/unionfs"${fuse_version}"
-
-	if [ ! -f "${mount_tool}" ] || [ ! -f "${bwrap}" ]; then
-		tail -c +$((init_size+bash_size+script_size+busybox_size+1)) "${script}" | head -c "${utils_size}" | tar -C "${working_dir}" -zxf -
-
-		if [ ! -f "${mount_tool}" ] || [ ! -f "${bwrap}" ]; then
-			clear
-			echo "The integrated utils were not extracted!"
-			echo "Perhaps something is wrong with the integrated utils.tar.gz."
-
-			exit 1
-		fi
-
-		chmod +x "${mount_tool}" 2>/dev/null
-		chmod +x "${bwrap}" 2>/dev/null
-		chmod +x "${extraction_tool}" 2>/dev/null
-		chmod +x "${unionfs_fuse}" 2>/dev/null
-		chmod +x "${compression_tool}" 2>/dev/null
-	fi
-else
-	if ! command -v bwrap 1>/dev/null; then
-		echo "USE_SYS_UTILS is enabled, but bubblewrap is not installed!"
-		echo "Please install it and run the script again."
-
-		exit 1
-	fi
-
-	bwrap=bwrap
-	unionfs_fuse=unionfs
-
-	if [ "${dwarfs_image}" = 1 ]; then
-		if ! command -v dwarfs 1>/dev/null && ! command -v dwarfs2 1>/dev/null; then
-			echo "USE_SYS_UTILS is enabled, but dwarfs is not installed!"
-			echo "Please install it and run the script again."
-
-			exit 1
-		fi
-
-		if command -v dwarfs2 1>/dev/null; then
-			mount_tool=dwarfs2
-		else
-			mount_tool=dwarfs
-		fi
-
-		extraction_tool=dwarfsextract
-	else
-		if ! command -v squashfuse 1>/dev/null; then
-			echo "USE_SYS_UTILS is enabled, but squashfuse is not installed!"
-			echo "Please install it and run the script again."
-
-			exit 1
-		fi
-
-		mount_tool=squashfuse
-		extraction_tool=unsquashfs
-	fi
-
-	show_msg "Using system-wide ${mount_tool} and bwrap"
-fi
-
 if [ "$1" = "-e" ] && [ -z "${script_is_symlink}" ]; then
-	if command -v "${extraction_tool}" 1>/dev/null; then
-		if [ "${dwarfs_image}" = 1 ]; then
-			echo "Extracting the image..."
-			mkdir "$(basename "${script}")"_files
-			launch_wrapper "${extraction_tool}" -i "${script}" -o "$(basename "${script}")"_files -O "${offset}"
-			echo "Done"
-		else
-			launch_wrapper "${extraction_tool}" -o "${offset}" -user-xattrs -d "$(basename "${script}")"_files "${script}"
-		fi
-	else
-		echo "Extraction tool not found"
-		exit 1
-	fi
+	echo "Extracting the image..."
+	files_dir="$(basename "${script}")_files"
+	mkdir "$files_dir"
 
-	exit
+	if [ "${dwarfs_image}" = 1 ]; then
+		exec dwarfsextract -i "${image}" -o "$(basename "${script}")"_files
+	else
+		exec unsquashfs -user-xattrs -d "$(basename "${script}")"_files "${image}"
+	fi
 fi
 
 if [ "$1" = "-H" ] && [ -z "${script_is_symlink}" ]; then
-	launch_wrapper "${bwrap}" --help
-	exit
+	exec bwrap --help
 fi
 
 run_bwrap () {
-	unset sandbox_params
-	unset unshare_net
-	unset custom_home
-	unset non_standard_home
-	unset xsockets
-	unset mount_opt
-	unset command_line
+	local sandbox_params unshare_net custom_home non_standard_home \
+		  xsockets mount_opt command_line
 
 	command_line=("${@}")
 
@@ -754,8 +553,8 @@ run_bwrap () {
 		bind_root=(--ro-bind "${newroot_path}" /)
 	fi
 
-	conty_variables="BASE_DIR DISABLE_NET DISABLE_X11 HOME_DIR QUIET_MODE \
-					SANDBOX SANDBOX_LEVEL USE_OVERLAYFS NVIDIA_HANDLER \
+	conty_variables="DISABLE_NET DISABLE_X11 HOME_DIR QUIET_MODE \
+					SANDBOX SANDBOX_LEVEL \
 					USE_SYS_UTILS XEPHYR_SIZE CUSTOM_MNT"
 
 	for v in ${conty_variables}; do
@@ -773,7 +572,7 @@ run_bwrap () {
 
 	show_msg
 
-	launch_wrapper "${bwrap}" \
+	bwrap \
 			"${bind_root[@]}" \
 			--dev-bind /dev /dev \
 			--ro-bind /sys /sys \
@@ -845,9 +644,8 @@ if [ -f "${nvidia_drivers_dir}"/lock ] && [ ! "$(ls "${working_dir}"/running_* 2
 fi
 
 if [ "${dwarfs_image}" = 1 ]; then
-	mount_command=("${mount_tool}" \
-	               "${script}" "${mount_point}" \
-	               -o offset="${offset}" \
+	mount_command=(dwarfs \
+	               "${image}" "${mount_point}" \
 	               -o debuglevel=error \
 	               -o workers="${dwarfs_num_workers}" \
 	               -o mlock=try \
@@ -858,9 +656,7 @@ if [ "${dwarfs_image}" = 1 ]; then
 	               -o tidy_strategy=swap \
 	               -o tidy_interval=5m)
 else
-	mount_command=("${mount_tool}" \
-	               -o offset="${offset}",ro \
-	               "${script}" "${mount_point}")
+	mount_command=(squashfuse -o ro "${image}" "${mount_point}")
 fi
 
 # Increase file descriptors limit in case soft and hard limits are different
@@ -870,7 +666,7 @@ ulimit -n $(ulimit -Hn) &>/dev/null
 # Mount the image
 mkdir -p "${mount_point}"
 
-if [ "$(ls "${mount_point}" 2>/dev/null)" ] || launch_wrapper "${mount_command[@]}"; then
+if [ "$(ls "${mount_point}" 2>/dev/null)" ] || "${mount_command[@]}"; then
 	if [ "$1" = "-m" ] && [ -z "${script_is_symlink}" ]; then
 		if [ ! -f "${working_dir}"/running_mount ]; then
 			echo 1 > "${working_dir}"/running_mount
@@ -899,8 +695,7 @@ if [ "$(ls "${mount_point}" 2>/dev/null)" ] || launch_wrapper "${mount_command[@
 		if [ -d "${applications_dir}" ]; then
 			rm -rf "${applications_dir}"
 
-			echo "Desktop files have been removed"
-			exit
+			exec echo "Desktop files have been removed"
 		fi
 
 		mkdir -p "${applications_dir}"
@@ -908,7 +703,7 @@ if [ "$(ls "${mount_point}" 2>/dev/null)" ] || launch_wrapper "${mount_command[@
 		cd "${applications_dir}"_temp || exit 1
 
 		unset variables
-		vars="BASE_DIR DISABLE_NET DISABLE_X11 HOME_DIR SANDBOX SANDBOX_LEVEL USE_SYS_UTILS CUSTOM_MNT"
+		vars="DISABLE_NET DISABLE_X11 HOME_DIR SANDBOX SANDBOX_LEVEL USE_SYS_UTILS CUSTOM_MNT"
 		for v in ${vars}; do
 			if [ -n "${!v}" ]; then
 				variables="${v}=\"${!v}\" ${variables}"
@@ -964,8 +759,7 @@ if [ "$(ls "${mount_point}" 2>/dev/null)" ] || launch_wrapper "${mount_command[@
 	export CUSTOM_PATH="/bin:/sbin:/usr/bin:/usr/sbin:/usr/lib/jvm/default/bin:/usr/local/bin:/usr/local/sbin:${PATH}"
 
 	if [ "$1" = "-l" ] && [ -z "${script_is_symlink}" ]; then
-		run_bwrap --ro-bind "${mount_point}"/var /var pacman -Q
-		exit
+		exec run_bwrap --ro-bind "${mount_point}"/var /var pacman -Q
 	fi
 
 	if [[ "${NVIDIA_HANDLER}" -ge 1 ]]; then
@@ -1111,7 +905,7 @@ if [ "$(ls "${mount_point}" 2>/dev/null)" ] || launch_wrapper "${mount_command[@
 
 					rm -f "${overlayfs_shared_dir}"/up/etc/ld.so.cache
 
-					export overlayfs_dir="${HOME}"/.local/share/Conty/overlayfs_"${script_md5}"
+					export overlayfs_dir="${HOME}"/.local/share/Conty/overlayfs
 					export nvidia_drivers_dir="${overlayfs_dir}"/nvidia
 
 					mount_overlayfs share_nvidia
@@ -1191,5 +985,3 @@ else
 
 	exit 1
 fi
-
-exit

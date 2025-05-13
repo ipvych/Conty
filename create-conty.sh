@@ -20,39 +20,24 @@ if [ ! -f "$script_dir"/conty-start.sh ]; then
 	exit 1
 fi
 
-if [ -n "$USE_DWARFS" ]; then
-	utils="utils_dwarfs.tar.gz"
-else
-	utils="utils.tar.gz"
-fi
-
+utils="$bootstrap"/opt/conty/utils.tar.xz
 if [ ! -f "$utils" ]; then
-	echo "$utils is not available locally, trying to fetch them from repository"
- 	if git config --get remote.origin.url; then
-		utils_url="$(git config --get remote.origin.url)/raw/$(git rev-parse --abbrev-ref HEAD)/$utils"
-	else
-		utils_url="https://github.com/Kron4ek/Conty/raw/master/$utils"
-   	fi
-	curl --output-dir "$build_dir" -#LO "$utils_url"
+	echo "Utils are missing from bootstrap.  Make sure bootstrap build script finished successfully"
+	exit 1
 fi
-
 echo "Extracting $utils"
 rm -rf "$utils_dir"
-if ! tar -C "$build_dir" -xzf "$utils"; then
+mkdir -p "$utils_dir"
+if ! tar -C "$utils_dir" -xf "$utils"; then
 	echo "Error occured while trying to extract $utils"
 	exit 1
 fi
 
 launch_wrapper () {
 	if [ -n "${USE_SYS_UTILS}" ]; then
-		if ! command -v "${1}" 1>/dev/null; then
-			echo "Please install $(echo "${1}" | tail -c +3) and run the script again"
-			exit 1
-		fi
-
 		"$@"
 	else
-		PATH="${utils_dir}:$PATH" "${utils_dir}"/ld-linux-x86-64.so.2 --library-path "${utils_dir}" "$@"
+		PATH="${utils_dir}/bin:$PATH" LD_PRELOAD_PATH="${utils_dir}/lib" "$@"
 	fi
 }
 
@@ -67,33 +52,25 @@ if [ ! -f "${image_path}" ] || [ -z "${USE_EXISTING_IMAGE}" ]; then
 	fi
 fi
 
-for util in init bash busybox; do
-	if [ ! -s "$utils_dir"/"$util" ]; then
-		echo "$utils_dir/$util does not exist or is empty"
-		exit 1
-	fi
-done
+# Write out file provided as $1, then marker that conty uses to extract files
+# for the rest of provided files then the content of those files
+bundle_conty() {
+	cat -- "$1" && shift
+	local count=1
+	while :; do
+		file="${!count}"
+		[ -z "$file" ] && break
+		printf '%s@%s@%s\n' "$(stat -c%a "$file")" "$(stat -c%s "$file")" "$(basename "$file")"
+		count=$((count + 1))
+	done
+	printf '@CONTY_MARKER_END@\n'
+	cat -- "$@"
+}
 
-utils_size="$(stat -c%s "$utils")"
-init_size="$(stat -c%s "$utils_dir"/init)"
-bash_size="$(stat -c%s "$utils_dir"/bash)"
-busybox_size="$(stat -c%s "$utils_dir"/busybox)"
-
-cp "$script_dir"/conty-start.sh "$build_dir"/conty-start.sh
-sed -i "s/init_size=.*/init_size=${init_size}/" "$build_dir"/conty-start.sh
-sed -i "s/bash_size=.*/bash_size=${bash_size}/" "$build_dir"/conty-start.sh
-sed -i "s/busybox_size=.*/busybox_size=${busybox_size}/" "$build_dir"/conty-start.sh
-sed -i "s/utils_size=.*/utils_size=${utils_size}/" "$build_dir"/conty-start.sh
-
-sed -i "s/script_size=.*/script_size=$(stat -c%s conty-start.sh)/" "$build_dir"/conty-start.sh
-sed -i "s/script_size=.*/script_size=$(stat -c%s conty-start.sh)/" "$build_dir"/conty-start.sh
-
-# Combine the files into a single executable using cat
-cat "$utils_dir"/init \
-	"$utils_dir"/bash \
-	"$build_dir"/conty-start.sh \
-	"$utils_dir"/busybox \
-	"$utils" \
-	"$image_path" > "$script_dir"/conty.sh
-chmod +x "$script_dir"/conty.sh
+bundle_conty "$utils_dir"/bin/conty_init \
+			 "$script_dir"/conty-start.sh \
+			 "$utils_dir"/bin/busybox \
+			 "$utils" \
+			 "$image_path" > "$build_dir"/conty.sh
+chmod +x "$build_dir"/conty.sh
 echo "Conty created and ready to use!"

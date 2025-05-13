@@ -85,6 +85,7 @@ if [ -z "$INSIDE_BOOTSTRAP" ]; then
 		tr -d '-' < /proc/sys/kernel/random/uuid \
 			| install -Dm0444 /dev/fd/0 "$bootstrap"/etc/machine-id
 		mkdir -p "$bootstrap"/opt/conty
+		install -Dm644 -t "$bootstrap"/opt/conty -- "$script_dir"/init.c
 		install -Dm755 -t "$bootstrap"/opt/conty -- "$script_dir"/*.sh
 	}
 	# shellcheck disable=2317
@@ -246,6 +247,78 @@ if [ "${#AUR_PACKAGES[@]}" -ne 0 ]; then
 	fi
 	install_aur_packages "${AUR_PACKAGES[@]}"
 fi
+
+# NOTE 2025-05-08: It should be possible to create PKGBUILD to build all these
+# statically linked from source which will improve portability and potentially
+# reduce binary size but for now just bundling things together this way works.
+# When it is needed refer to create-utils.sh script for some pointers on how
+# they can be built
+ldd_tree() {
+	declare -A processed
+	declare -a libs tail
+	local cur="$1"
+	while :; do
+		mapfile -t libs < <(ldd "$cur" 2>/dev/null | awk '{print $3}' | grep -v '^$')
+		for lib in "${libs[@]}"; do
+			if [ ! -f "$lib" ] || [[ -v ${processed[$lib]} ]]; then
+				continue
+			fi
+			processed["$lib"]=0
+			echo "$lib"
+			tail+=("$cur")
+			cur="$lib"
+			continue 2
+		done
+		if [ "${#tail[@]}" -gt 0 ]; then
+			cur="${tail[-1]}"
+			unset 'tail[-1]'
+			continue
+		fi
+		break
+	done
+}
+
+stage "Creating archive with utilities"
+packages=(bash busybox bubblewrap squashfuse squashfs-tools unionfs-fuse musl gcc)
+[ -n "$USE_DWARFS" ] && packages+=(dwarfs)
+declare -a needed_packages
+mapfile -t needed_packages < <(comm -23 \
+									<(printf '%s\n' "${packages[@]}" | sort -u) \
+									<(pacman -Qq | sort -u))
+info "Installing required packages"
+if [ -z "$ENABLE_CHAOTIC_AUR" ]; then
+	install_aur_packages unionfs-fuse
+	[ -n "$USE_DWARFS" ] && install_aur_packages dwarfs
+fi
+pacman --needed --noconfirm -S "${needed_packages[@]}"
+
+executables=(bash bwrap squashfuse unsquashfs busybox unionfs)
+[ -n "$USE_DWARFS" ] && executables+=(dwarfs dwarfsextract mkdwarfs )
+mkdir -p /opt/conty/utils/bin
+for e in "${executables[@]}"; do
+	cp -L "$(command -v "$e")" /opt/conty/utils/bin
+done
+
+mkdir -p /opt/conty/utils/lib
+for e in "${executables[@]}"; do
+	ldd_tree "$(command -v "$e")";
+done | sort -u | xargs -I{} cp {} /opt/conty/utils/lib
+
+info "Creating init program"
+init=/opt/conty/utils/bin/conty_init
+init_size=0
+while :; do
+	musl-gcc -static -Oz -D PROGRAM_SIZE="$init_size" -o "$init" /opt/conty/init.c
+	strip -s "$init"
+	[ "$init_size" -eq "$(stat -c%s "$init")" ] && break
+	init_size="$(stat -c%s "$init")"
+done
+
+info "Creating archive"
+busybox tar c -J -f /opt/conty/utils.tar.xz -C /opt/conty/utils .
+info "Cleaning up leftover packages & directories"
+rm -r /opt/conty/utils
+pacman --noconfirm -Rsu "${needed_packages[@]}"
 
 stage "Clearing pacman cache"
 rm -rf /var/cache/pacman/pkg
