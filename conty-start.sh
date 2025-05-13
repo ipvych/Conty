@@ -120,21 +120,6 @@ Environment variables:
                     want to undo any changes, delete the entire
                     directory from there.
 
-  NVIDIA_HANDLER    Fixes issues with graphical applications on Nvidia
-                    GPUs with the proprietary driver. At least 2 GB of
-                    free disk space is required for this function.
-                    This function is enabled by default on systems with
-                    an Nvidia GPU.
-                    Available modes:
-                      1. In this mode Conty downloads the
-                         driver from the official Nvidia website and
-                         installs it inside the container.
-                      2. In this mode Conty copies Nvidia libraries from
-                         the host system into the container.
-                    The default is 1 if there is an internet
-                    connection and the Nvidia website is accessible,
-                    otherwise the default is 2.
-
   USE_SYS_UTILS     Tells the script to use squashfuse/dwarfs and bwrap
                     installed on the system instead of the builtin ones.
 
@@ -169,19 +154,14 @@ else
 fi
 
 export overlayfs_dir="$conty_home/overlayfs"
-export nvidia_drivers_dir="${overlayfs_dir}"/nvidia
 
 export overlayfs_shared_dir="${HOME}"/.local/share/Conty/overlayfs_shared
-export nvidia_drivers_shared_dir="${overlayfs_shared_dir}"/nvidia
 
 
 # Detect if the image is compressed with DwarFS or SquashFS
 if [ "$(head -c 6 "$image")" = "DWARFS" ]; then
 	dwarfs_image=1
 fi
-
-# Enable NVIDIA_HANDLER by default
-NVIDIA_HANDLER="${NVIDIA_HANDLER:-1}"
 
 unset script_is_symlink
 if [ -L "${script_literal}" ]; then
@@ -263,78 +243,11 @@ mount_overlayfs () {
 	mkdir -p "${overlayfs_dir}"/up
 	mkdir -p "${overlayfs_dir}"/work
 	mkdir -p "${overlayfs_dir}"/merged
-	mkdir -p "${nvidia_drivers_dir}"
 
 	if [ ! "$(ls "${overlayfs_dir}"/merged 2>/dev/null)" ]; then
-		if command -v unionfs 1>/dev/null; then
-			if [ "${1}" = "share_nvidia" ]; then
-				unionfs -o relaxed_permissions,cow,noatime "${overlayfs_dir}"/up=RW:"${overlayfs_shared_dir}"/up=RO:"${mount_point}"=RO "${overlayfs_dir}"/merged
-			else
-				unionfs -o relaxed_permissions,cow,noatime "${overlayfs_dir}"/up=RW:"${mount_point}"=RO "${overlayfs_dir}"/merged
-			fi
-		else
-			echo "unionfs-fuse not found"
-			return 1
-		fi
+		unionfs -o relaxed_permissions,cow,noatime "${overlayfs_dir}"/up=RW:"${mount_point}"=RO "${overlayfs_dir}"/merged
+		return "$?"
 	fi
-}
-
-nvidia_driver_handler () {
-	OLD_PWD="${PWD}"
-
-	rm -rf "${nvidia_drivers_dir}"/nvidia.run "${nvidia_drivers_dir}"/nvidia-driver
-	mkdir -p "${nvidia_drivers_dir}"
-	cd "${nvidia_drivers_dir}"
-
-	echo "Found Nvidia driver ${nvidia_driver_version}"
-	echo "Downloading the Nvidia driver ${nvidia_driver_version}..."
-
-	# Try to download the driver from the default Nvidia URL
-	driver_url="https://download.nvidia.com/XFree86/Linux-x86_64/${nvidia_driver_version}/NVIDIA-Linux-x86_64-${nvidia_driver_version}.run"
-	curl -#Lo nvidia.run "${driver_url}"
-
-	# If the previous download failed, get the URL from FlatHub repo
-	if [ ! -s nvidia.run ] || [[ "$(stat -c%s nvidia.run)" -lt 30000000 ]]; then
-		rm -f nvidia.run
-		driver_url="https:$(curl -#Lo - "https://raw.githubusercontent.com/flathub/org.freedesktop.Platform.GL.nvidia/master/data/nvidia-${nvidia_driver_version}-x86_64.data" | cut -d ':' -f 6)"
-		curl -#Lo nvidia.run "${driver_url}"
-	fi
-
-	if [ -s nvidia.run ]; then
-		echo "Installing the Nvidia driver, please wait..."
-		chmod +x nvidia.run
-		./nvidia.run --target nvidia-driver -x &>/dev/null
-
-		if [ -f nvidia-driver/nvidia-installer ]; then
-			cd nvidia-driver || exit 1
-			chmod +x nvidia-installer
-			fakeroot ./nvidia-installer --silent --no-x-check --no-kernel-module &>/dev/null
-			rm -rf "${nvidia_drivers_dir}"/nvidia.run "${nvidia_drivers_dir}"/nvidia-driver
-
-			if [ -s /usr/lib/libGLX_nvidia.so."${nvidia_driver_version}" ] || \
-			   [ -s /usr/lib/libGL.so."${nvidia_driver_version}" ] || \
-                           [ -s /usr/lib/libnvidia-glcore.so."${nvidia_driver_version}" ] || \
-			   [ -s /usr/lib/libnvidia-eglcore.so."${nvidia_driver_version}" ]; then
-				cp /usr/lib/tls/libnvidia-tls.so.* /usr/lib &>/dev/null
-				cp /usr/lib32/tls/libnvidia-tls.so.* /usr/lib32 &>/dev/null
-				echo "${nvidia_driver_version}" > "${nvidia_drivers_dir}"/current-nvidia-version
-				echo "The driver installed successfully"
-				nvidia_install_success=1
-			else
-				echo "Failed to install the driver"
-			fi
-		else
-			echo "Failed to extract the driver"
-		fi
-	else
-		echo "Failed to download the driver"
-	fi
-
-	if [ "${nvidia_install_success}" != 1 ]; then
-		rm -f "${nvidia_drivers_dir}"/current-nvidia-version
-	fi
-
-	cd "${OLD_PWD}"
 }
 
 # Check if FUSE is installed
@@ -540,7 +453,7 @@ run_bwrap () {
 		mount_opt=(--bind-try /opt /opt)
 	fi
 
-	if ([[ "${NVIDIA_HANDLER}" -ge 1 ]] || [ "${USE_OVERLAYFS}" = 1 ]) && \
+	if [ "${USE_OVERLAYFS}" = 1 ] && \
 		[ "$(ls "${overlayfs_dir}"/merged 2>/dev/null)" ]; then
 		newroot_path="${overlayfs_dir}"/merged
 	else
@@ -637,10 +550,6 @@ trap 'trap_exit' EXIT
 
 if [ "$(ls "${working_dir}"/running_* 2>/dev/null)" ] && [ ! "$(ls "${mount_point}" 2>/dev/null)" ]; then
 	rm -f "${working_dir}"/running_*
-fi
-
-if [ -f "${nvidia_drivers_dir}"/lock ] && [ ! "$(ls "${working_dir}"/running_* 2>/dev/null)" ]; then
-	rm -f "${nvidia_drivers_dir}"/lock
 fi
 
 if [ "${dwarfs_image}" = 1 ]; then
@@ -760,172 +669,6 @@ if [ "$(ls "${mount_point}" 2>/dev/null)" ] || "${mount_command[@]}"; then
 
 	if [ "$1" = "-l" ] && [ -z "${script_is_symlink}" ]; then
 		exec run_bwrap --ro-bind "${mount_point}"/var /var pacman -Q
-	fi
-
-	if [[ "${NVIDIA_HANDLER}" -ge 1 ]]; then
-		if [ -f /sys/module/nvidia/version ]; then
-			unset NVIDIA_SHARED
-
-			if [ ! "$(ls "${mount_point}"/usr/lib/libGLX_nvidia.so.*.* 2>/dev/null)" ]; then
-				export overlayfs_dir="${overlayfs_shared_dir}"
-				export nvidia_drivers_dir="${nvidia_drivers_shared_dir}"
-				export NVIDIA_SHARED=1
-			fi
-
-			if [ -f "${nvidia_drivers_dir}"/lock ]; then
-				echo "Nvidia driver is currently installing"
-				echo "Please wait a moment and run Conty again"
-				exit 1
-			fi
-
-			if mount_overlayfs; then
-				show_msg "Nvidia driver handler is enabled"
-
-				unset nvidia_skip_install
-				unset nvidia_driver_version
-
-				nvidia_driver_version="$(cat /sys/module/nvidia/version)"
-
-				if [ "$(ls "${mount_point}"/usr/lib/libGLX_nvidia.so.*.* 2>/dev/null)" ]; then
-					container_nvidia_version="$(basename "${mount_point}"/usr/lib/libGLX_nvidia.so.*.* | tail -c +18)"
-				fi
-
-				if [ -f "${nvidia_drivers_dir}"/current-nvidia-version ] && \
-					[ ! "$(ls "${overlayfs_dir}"/up 2>/dev/null)" ]; then
-					rm -f "${nvidia_drivers_dir}"/current-nvidia-version
-				fi
-
-				if [ -z "${nvidia_driver_version}" ] || [ "${nvidia_driver_version}" = "" ]; then
-					echo "Unable to determine Nvidia driver version"
-					rm -f "${nvidia_drivers_dir}"/current-nvidia-version
-					nvidia_skip_install=1
-				fi
-
-				if [ "${nvidia_driver_version}" = "${container_nvidia_version}" ]; then
-					rm -f "${nvidia_drivers_dir}"/current-nvidia-version
-					nvidia_skip_install=1
-				fi
-
-				if [ "$(cat "${nvidia_drivers_dir}"/current-nvidia-version 2>/dev/null)" = "${nvidia_driver_version}" ]; then
-					nvidia_skip_install=1
-				fi
-
-				if [ -z "${nvidia_skip_install}" ]; then
-					mkdir -p "${nvidia_drivers_dir}"
-					echo > "${nvidia_drivers_dir}"/lock
-
-					if [ "${NVIDIA_HANDLER}" = 1 ]; then
-						export nvidia_driver_version
-						export -f nvidia_driver_handler
-						DISABLE_NET=0 QUIET_MODE=1 RW_ROOT=1 run_bwrap --tmpfs /tmp --tmpfs /var --tmpfs /run \
-						--bind "${nvidia_drivers_dir}" "${nvidia_drivers_dir}" \
-						bash -c nvidia_driver_handler
-					fi
-
-					if [ "${NVIDIA_HANDLER}" = 2 ] || [ ! -f "${nvidia_drivers_dir}"/current-nvidia-version ]; then
-						if [ -f "${nvidia_drivers_dir}"/host_nvidia_libs ]; then
-							for f in $(cat "${nvidia_drivers_dir}"/host_nvidia_libs); do
-								libname="$(basename "${f}")"
-								rm -f "${overlayfs_dir}"/merged/usr/lib/"${libname}" \
-								      "${overlayfs_dir}"/merged/usr/lib32/"${libname}"
-							done
-						fi
-
-						rm -f "${nvidia_drivers_dir}"/host_nvidia_libs \
-						      "${nvidia_drivers_dir}"/host_libs
-
-						ldconfig -p > "${nvidia_drivers_dir}"/host_libs
-
-						if [ -s "${nvidia_drivers_dir}"/host_libs ]; then
-							grep -i "nvidia" "${nvidia_drivers_dir}"/host_libs | cut -d ">" -f 2 >> "${nvidia_drivers_dir}"/host_nvidia_libs
-
-							if [ -s "${nvidia_drivers_dir}"/host_nvidia_libs ]; then
-								echo "Copying Nvidia libraries from the host system, please wait..."
-
- 								grep -i "libcuda" "${nvidia_drivers_dir}"/host_libs | cut -d ">" -f 2 >> "${nvidia_drivers_dir}"/host_nvidia_libs
-
-								for f in $(grep "libnv" "${nvidia_drivers_dir}"/host_libs | cut -d ">" -f 2); do
-									if strings "${f}" | grep -qi -m 1 "nvidia" &>/dev/null; then
-										echo "${f}" >> "${nvidia_drivers_dir}"/host_nvidia_libs
-									fi
-								done
-
-								nvidia_lib_copied=0
-								for f in $(cat "${nvidia_drivers_dir}"/host_nvidia_libs); do
-									libname="$(basename "${f}")"
-
-									if file "$(readlink -f "${f}")" | grep "32-bit" &>/dev/null; then
-										cp -fL "${f}" "${overlayfs_dir}"/merged/usr/lib32/"${libname}" 2>/dev/null
-									else
-										cp -fL "${f}" "${overlayfs_dir}"/merged/usr/lib/"${libname}" 2>/dev/null && nvidia_lib_copied=1
-									fi
-								done
-
-								nvidia_other_files="/usr/share/vulkan/icd.d/nvidia_icd.json \
-								                    /usr/share/vulkan/implicit_layer.d/nvidia_layers.json \
-								                    /usr/lib/nvidia/wine/nvngx.dll \
-								                    /usr/lib/nvidia/wine/_nvngx.dll \
-								                    /usr/share/egl/egl_external_platform.d/20_nvidia_xcb.json \
-								                    /usr/share/glvnd/egl_vendor.d/10_nvidia.json \
-								                    /usr/share/nvidia/nvidia-application-profiles-${nvidia_driver_version}-rc"
-
-								for f in ${nvidia_other_files}; do
-									filedir="$(dirname "${f}")"
-
-									if [ -f "${f}" ]; then
-										filepath="${f}"
-									else
-										filepath="$(find /usr /run /nix -name "$(basename "${f}")" -type f -print -quit 2>/dev/null)"
-									fi
-
-									if [ -f "${filepath}" ]; then
-										mkdir -p "${overlayfs_dir}"/merged/"${filedir}"
-										cp -fL "${filepath}" "${overlayfs_dir}"/merged/"${filedir}" &>/dev/null
-										cp -fL "$(dirname "${filepath}")"/*nvidia* "${overlayfs_dir}"/merged/"${filedir}" &>/dev/null
-									fi
-								done
-
-								if [ "${nvidia_lib_copied}" = 1 ]; then
-									echo "${nvidia_driver_version}" > "${nvidia_drivers_dir}"/current-nvidia-version
-	 							else
-	 								echo "Failed to copy Nvidia libraries"
-	  							fi
-							else
-       								echo "Nvidia libraries not found on the host system"
-	       						fi
-						fi
-					fi
-
-					rm -f "${nvidia_drivers_dir}"/lock
-				fi
-
-				if [ -n "${NVIDIA_SHARED}" ]; then
-					fusermount"${fuse_version}" -uz "${overlayfs_dir}"/merged 2>/dev/null || \
-					umount --lazy "${overlayfs_dir}"/merged 2>/dev/null
-
-					rm -f "${overlayfs_shared_dir}"/up/etc/ld.so.cache
-
-					export overlayfs_dir="${HOME}"/.local/share/Conty/overlayfs
-					export nvidia_drivers_dir="${overlayfs_dir}"/nvidia
-
-					mount_overlayfs share_nvidia
-
-					if [ "$(cat "${nvidia_drivers_dir}"/ld.so.cache.nvidia 2>/dev/null)" != "${nvidia_driver_version}" ]; then
-						QUIET_MODE=1 RW_ROOT=1 run_bwrap ldconfig
-						echo "${nvidia_driver_version}" > "${nvidia_drivers_dir}"/ld.so.cache.nvidia
-					fi
-				fi
-			else
-				echo "Nvidia driver handler disabled due to unionfs errors"
-				unset NVIDIA_HANDLER
-			fi
-		else
-			unset NVIDIA_HANDLER
-		fi
-
-		if [ -z "${NVIDIA_SHARED}" ] && [ ! -f "${nvidia_drivers_dir}"/current-nvidia-version ]; then
-			unset NVIDIA_HANDLER
-		fi
 	fi
 
 	if [ "${USE_OVERLAYFS}" = 1 ]; then
