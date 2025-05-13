@@ -113,13 +113,6 @@ Environment variables:
                          isolates X11 server with Xephyr.
                     The default is 1.
 
-  USE_OVERLAYFS     Mounts a writable unionfs-fuse filesystem on top
-                    of the read-only squashfs/dwarfs image, allowing to
-                    modify files inside it.
-                    Overlays are stored in ~/.local/share/Conty. If you
-                    want to undo any changes, delete the entire
-                    directory from there.
-
   USE_SYS_UTILS     Tells the script to use squashfuse/dwarfs and bwrap
                     installed on the system instead of the builtin ones.
 
@@ -152,11 +145,6 @@ if [ -n "${CUSTOM_MNT}" ] && [ -d "${CUSTOM_MNT}" ]; then
 else
 	mount_point="${working_dir}"/mnt
 fi
-
-export overlayfs_dir="$conty_home/overlayfs"
-
-export overlayfs_shared_dir="${HOME}"/.local/share/Conty/overlayfs_shared
-
 
 # Detect if the image is compressed with DwarFS or SquashFS
 if [ "$(head -c 6 "$image")" = "DWARFS" ]; then
@@ -236,17 +224,6 @@ gui () {
 
 			"${launch_command[@]}"
 		fi
-	fi
-}
-
-mount_overlayfs () {
-	mkdir -p "${overlayfs_dir}"/up
-	mkdir -p "${overlayfs_dir}"/work
-	mkdir -p "${overlayfs_dir}"/merged
-
-	if [ ! "$(ls "${overlayfs_dir}"/merged 2>/dev/null)" ]; then
-		unionfs -o relaxed_permissions,cow,noatime "${overlayfs_dir}"/up=RW:"${mount_point}"=RO "${overlayfs_dir}"/merged
-		return "$?"
 	fi
 }
 
@@ -453,12 +430,7 @@ run_bwrap () {
 		mount_opt=(--bind-try /opt /opt)
 	fi
 
-	if [ "${USE_OVERLAYFS}" = 1 ] && \
-		[ "$(ls "${overlayfs_dir}"/merged 2>/dev/null)" ]; then
-		newroot_path="${overlayfs_dir}"/merged
-	else
-		newroot_path="${mount_point}"
-	fi
+	newroot_path="${mount_point}"
 
 	if [ "${RW_ROOT}" = 1 ]; then
 		bind_root=(--bind "${newroot_path}" /)
@@ -524,11 +496,6 @@ exit_function () {
 	rm -f "${working_dir}"/running_"${script_id}"
 
 	if [ ! "$(ls "${working_dir}"/running_* 2>/dev/null)" ]; then
-		if [ -d "${overlayfs_dir}"/merged ]; then
-			fusermount"${fuse_version}" -uz "${overlayfs_dir}"/merged 2>/dev/null || \
-			umount --lazy "${overlayfs_dir}"/merged 2>/dev/null
-		fi
-
 		if [ -z "${CUSTOM_MNT}" ]; then
 			fusermount"${fuse_version}" -uz "${mount_point}" 2>/dev/null || \
 			umount --lazy "${mount_point}" 2>/dev/null
@@ -670,17 +637,6 @@ if [ "$(ls "${mount_point}" 2>/dev/null)" ] || "${mount_command[@]}"; then
 	if [ "$1" = "-l" ] && [ -z "${script_is_symlink}" ]; then
 		exec run_bwrap --ro-bind "${mount_point}"/var /var pacman -Q
 	fi
-
-	if [ "${USE_OVERLAYFS}" = 1 ]; then
-		if mount_overlayfs; then
-			show_msg "Using unionfs"
-			RW_ROOT=1
-		else
-			echo "Failed to mount unionfs"
-			unset USE_OVERLAYFS
-		fi
-	fi
-
 	# If SANDBOX_LEVEL is 3, run Xephyr and openbox before running applications
 	if [ "${SANDBOX}" = 1 ] && [ -n "${SANDBOX_LEVEL}" ] && [[ "${SANDBOX_LEVEL}" -ge 3 ]]; then
 		if [ -f "${mount_point}"/usr/bin/Xephyr ]; then
