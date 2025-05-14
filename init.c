@@ -289,5 +289,5 @@ exec:
     	bash_args[k] = argv[i];
     }
     bash_args[k] = NULL;
-    return execvp("bash", bash_args);
+	return execvp("busybox", bash_args);
 }

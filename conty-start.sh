@@ -1,5 +1,5 @@
-#!/usr/bin/env bash
-## Dependencies: bash gzip fuse2 (or fuse3) tar coreutils
+#!/bin/sh
+# shellcheck disable=3043 # local keyword is supported by busybox sh
 
 LD_PRELOAD_ORIG="$LD_PRELOAD"
 LD_LIBRARY_PATH_ORIG="$LD_LIBRARY_PATH"
@@ -9,7 +9,7 @@ LC_ALL_ORIG="$LC_ALL"
 export LC_ALL=C
 
 # Refuse to run as root unless environment variable is set
-if (( EUID == 0 )) && [ -z "$ALLOW_ROOT" ]; then
+if [ -n "$ALLOW_ROOT" ] && [ "$(id -u)" -eq 0 ]; then
 	echo 'Do not run this script as root!'
 	echo
 	echo 'If you really need to run it as root and know what you are doing, set'
@@ -40,9 +40,7 @@ image="$conty_home/content/image"
 working_dir="$conty_home/run_$script_md5"
 mkdir -p "$working_dir"
 
-conty_variables=(DISABLE_NET DISABLE_X11 HOME_DIR QUIET_MODE
-				 SANDBOX SANDBOX_LEVEL
-				 USE_SYS_UTILS XEPHYR_SIZE CUSTOM_MNT)
+conty_variables='DISABLE_NET DISABLE_X11 HOME_DIR QUIET_MODE SANDBOX SANDBOX_LEVEL USE_SYS_UTILS XEPHYR_SIZE CUSTOM_MNT'
 
 # Detect if the image is compressed with DwarFS or SquashFS
 [ "$(head -c 6 "$image")" = "DWARFS" ] && dwarfs_image=1
@@ -63,109 +61,114 @@ run_bwrap () {
 	local wayland_socket="$XDG_RUNTIME_DIR/${WAYLAND_DISPLAY:-wayland-0}"
     local bwrap_path="/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/lib/jvm/default/bin"
 	local SANDBOX_LEVEL="${SANDBOX_LEVEL:-0}"
+	local args_file
+	args_file="$(mktemp)"
+	args() {
+		printf -- '%s\0' "$@" >> "$args_file"
+	}
 
-    declare -a args
 	if [ -n "$RW_ROOT"  ]; then
-		args+=(--bind "$mount_point" /)
+		args --bind "$mount_point" /
 	else
-		args+=(--ro-bind "$mount_point" /)
+		args --ro-bind "$mount_point" /
 	fi
 
-    args+=(--dev-bind /dev /dev
-		   --ro-bind /sys /sys
-           --proc /proc
-           --ro-bind-try /etc/asound.conf /etc/asound.conf
-		   --ro-bind-try /etc/localtime /etc/localtime
-           --ro-bind-try /usr/share/steam/compatibilitytools.d /usr/share/steam/compatibilitytools.d
-		   --ro-bind-try /etc/nsswitch.conf /etc/nsswitch.conf
-		   --ro-bind-try /etc/passwd /etc/passwd
-		   --ro-bind-try /etc/group /etc/group
-		   --ro-bind-try /etc/machine-id /etc/machine-id
-		   --setenv XDG_DATA_DIRS "/usr/local/share:/usr/share:$XDG_DATA_DIRS")
+	args --dev-bind /dev /dev \
+		 --ro-bind /sys /sys \
+         --proc /proc \
+         --ro-bind-try /etc/asound.conf /etc/asound.conf \
+		 --ro-bind-try /etc/localtime /etc/localtime \
+         --ro-bind-try /usr/share/steam/compatibilitytools.d /usr/share/steam/compatibilitytools.d \
+		 --ro-bind-try /etc/nsswitch.conf /etc/nsswitch.conf \
+		 --ro-bind-try /etc/passwd /etc/passwd \
+		 --ro-bind-try /etc/group /etc/group \
+		 --ro-bind-try /etc/machine-id /etc/machine-id \
+		 --setenv XDG_DATA_DIRS "/usr/local/share:/usr/share:$XDG_DATA_DIRS"
 
     if [ -z "$SANDBOX" ]; then
 		bwrap_path="$bwrap_path:$PATH"
-        args+=(--bind-try /tmp /tmp
-			   --bind-try /home /home
-			   --bind-try /mnt /mnt
-			   --bind-try /initrd /initrd
-			   --bind-try /media /media
-			   --bind-try /run /run
-			   --bind-try /var /var
-			   --bind-try /opt /opt)
+		args --bind-try /tmp /tmp \
+			 --bind-try /home /home \
+			 --bind-try /mnt /mnt \
+			 --bind-try /initrd /initrd \
+			 --bind-try /media /media \
+			 --bind-try /run /run \
+			 --bind-try /var /var \
+			 --bind-try /opt /opt
     else
-        args+=(--tmpfs /home
-			   --tmpfs /mnt
-			   --tmpfs /initrd
-			   --tmpfs /media
-			   --tmpfs /var
-			   --tmpfs /run
-			   --symlink /run /var/run
-			   --tmpfs /tmp
-			   --new-session)
+        args --tmpfs /home \
+			 --tmpfs /mnt \
+			 --tmpfs /initrd \
+			 --tmpfs /media \
+			 --tmpfs /var \
+			 --tmpfs /run \
+			 --symlink /run /var/run \
+			 --tmpfs /tmp \
+			 --new-session
         if [ "$SANDBOX_LEVEL" -ge 3 ]; then
             DISABLE_NET=1
         fi
         if [ "$SANDBOX_LEVEL" -ge 2 ]; then
-            args+=(--unshare-pid
-                   --unshare-user-try
-				   --setenv XDG_RUNTIME_DIR "$XDG_RUNTIME_DIR"
-				   --ro-bind-try "$wayland_socket" "$wayland_socket"
-				   --ro-bind-try "$XDG_RUNTIME_DIR"/pulse "$XDG_RUNTIME_DIR"/pulse
-				   --ro-bind-try "$XDG_RUNTIME_DIR"/pipewire-0 "$XDG_RUNTIME_DIR"/pipewire-0
-                   --unsetenv "DBUS_SESSION_BUS_ADDRESS")
+            args --unshare-pid \
+                 --unshare-user-try \
+				 --setenv XDG_RUNTIME_DIR "$XDG_RUNTIME_DIR" \
+				 --ro-bind-try "$wayland_socket" "$wayland_socket" \
+				 --ro-bind-try "$XDG_RUNTIME_DIR"/pulse "$XDG_RUNTIME_DIR"/pulse \
+				 --ro-bind-try "$XDG_RUNTIME_DIR"/pipewire-0 "$XDG_RUNTIME_DIR"/pipewire-0 \
+                 --unsetenv "DBUS_SESSION_BUS_ADDRESS"
         elif [ "$SANDBOX_LEVEL" -ge 1 ]; then
-            args+=(--setenv XDG_RUNTIME_DIR "$XDG_RUNTIME_DIR"
-				   --bind-try "$XDG_RUNTIME_DIR" "$XDG_RUNTIME_DIR"
-				   --bind-try /run/dbus /run/dbus)
+            args --setenv XDG_RUNTIME_DIR "$XDG_RUNTIME_DIR" \
+				 --bind-try "$XDG_RUNTIME_DIR" "$XDG_RUNTIME_DIR" \
+				 --bind-try /run/dbus /run/dbus
         fi
     fi
 
 	if [ -n "$HOME_DIR" ]; then
-		args+=(--bind "$HOME_DIR" "$HOME")
+		args --bind "$HOME_DIR" "$HOME"
 	fi
 
 	if [ -z "$DISABLE_NET" ]; then
-		args+=(--ro-bind-try /etc/resolv.conf /etc/resolv.conf
-		       --ro-bind-try /etc/hosts /etc/hosts)
+		args --ro-bind-try /etc/resolv.conf /etc/resolv.conf \
+		     --ro-bind-try /etc/hosts /etc/hosts
 	else
-		args+=(--unshare-net)
+		args --unshare-net
 	fi
 
 	if [ -n "$DISABLE_X11" ]; then
-		args+=(--unsetenv "DISPLAY" --unsetenv "XAUTHORITY")
+		args --unsetenv "DISPLAY" --unsetenv "XAUTHORITY"
 	else
-		args+=(--tmpfs /tmp/.X11-unix)
+		args --tmpfs /tmp/.X11-unix
 		if [ "$SANDBOX_LEVEL" -ge 3 ]; then
-			args+=(--ro-bind-try /tmp/.X11-unix/X"$xephyr_display" /tmp/.X11-unix/X"$xephyr_display"
-				   --setenv "DISPLAY" :"$xephyr_display")
+			args --ro-bind-try /tmp/.X11-unix/X"$xephyr_display" /tmp/.X11-unix/X"$xephyr_display" \
+				 --setenv "DISPLAY" :"$xephyr_display"
 		else
 			local XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 			if [ -n "$XAUTHORITY" ]; then
-				args+=(--ro-bind-try "$XAUTHORITY" "$XAUTHORITY")
+				args --ro-bind-try "$XAUTHORITY" "$XAUTHORITY"
 			fi
 
-			shopt -s nullglob
-			for s in /tmp/.X11-unix/*; do
-				args+=(--bind-try "$s" "$s")
+			for s in find /tmp/.X11-unix; do
+				args --bind-try "$s" "$s"
 			done
-			shopt -u nullglob
 		fi
 	fi
 
-	for v in "${conty_variables[@]}"; do
-		args+=(--unsetenv "$v")
+	for v in $conty_variables; do
+		args --unsetenv "$v"
 	done
-	[ -n "$LD_PRELOAD_ORIG" ] && args+=(--setenv LD_PRELOAD "$LD_PRELOAD_ORIG")
-	[ -n "$LD_LIBRARY_PATH_ORIG" ] && args+=(--setenv LD_LIBRARY_PATH "$LD_LIBRARY_PATH_ORIG")
+	[ -n "$LD_PRELOAD_ORIG" ] && args --setenv LD_PRELOAD "$LD_PRELOAD_ORIG"
+	[ -n "$LD_LIBRARY_PATH_ORIG" ] && args --setenv LD_LIBRARY_PATH "$LD_LIBRARY_PATH_ORIG"
 	if [ -n "$LC_ALL_ORIG" ]; then
-		args+=(--setenv LC_ALL "$LC_ALL_ORIG")
+		args --setenv LC_ALL "$LC_ALL_ORIG"
 	else
-		args+=(--unsetenv LC_ALL)
+		args --unsetenv LC_ALL
 	fi
-	args+=(--setenv PATH "$bwrap_path")
+	args --setenv PATH "$bwrap_path"
 
-	bwrap "${args[@]}" "$@"
+	exec 3< "$args_file"
+	bwrap --args 3 "$@"
+	exec 3>&-
+	rm "$args_file"
 }
 
 run_xephyr() {
@@ -178,67 +181,9 @@ run_xephyr() {
 
 	QUIET_MODE=1 DISABLE_NET=1 SANDBOX_LEVEL=2 run_bwrap \
 				 --bind-try /tmp/.X11-unix /tmp/.X11-unix \
-				 Xephyr -noreset -ac -br -screen "$XEPHYR_SIZE" :"$xephyr_display" &>/dev/null &
+				 Xephyr -noreset -ac -br -screen "$XEPHYR_SIZE" :"$xephyr_display" 1>/dev/null 2>&1 &
 	echo "$!"
 	QUIET_MODE=1 run_bwrap openbox &
-}
-
-
-run_gui () {
-	if ! command -v zenity 1>/dev/null; then
-		exit 1
-	fi
-
-	gui_response=$(zenity --title="Conty" \
-		--entry \
-		--text="Enter a command or select a file you want to run" \
-		--ok-label="Run" \
-		--cancel-label="Quit" \
-		--extra-button="Select a file" \
-		--extra-button="Open a terminal")
-
-	gui_exit_code=$?
-
-	if [ "$gui_response" = "Select a file" ]; then
-		filepath="$(zenity --title="A file to run" --file-selection)"
-
-		if [ -f "$filepath" ]; then
-			[ -x "$filepath" ] || chmod +x "$filepath"
-			"$filepath"
-		else
-			zenity --error --text="You did not select a file"
-		fi
-	elif [ "$gui_response" = "Open a terminal" ]; then
-		if command -v lxterminal 1>/dev/null; then
-			lxterminal -T "Conty terminal" --command="bash -c 'echo Welcome to Conty; echo Enter any commands you want to execute; bash'"
-		else
-			zenity --error --text="A terminal emulator is not installed in this instance of Conty"
-		fi
-	elif [ "$gui_exit_code" = 0 ]; then
-		if [ -z "$gui_response" ]; then
-			zenity --error --text="You need to enter a command to execute"
-		else
-			for a in $gui_response; do
-				if [ "${a:0:1}" = "\"" ] || [ "${a:0:1}" = "'" ] || [ -n "$combined_args" ]; then
-					combined_args="$combined_args $a"
-
-					if [ "${a: -1}" = "\"" ] || [ "${a: -1}" = "'" ]; then
-						combined_args="${combined_args:2}"
-						combined_args="${combined_args%?}"
-
-						launch_command+=("$combined_args")
-						unset combined_args
-					fi
-
-					continue
-				fi
-
-				launch_command+=("$a")
-			done
-
-			"${launch_command[@]}"
-		fi
-	fi
 }
 
 cmd_help() {
@@ -251,8 +196,6 @@ Arguments:
   -h    Display this text
 
   -H    Display bubblewrap help
-
-  -g    Run the Conty's graphical interface
 
   -l    Show a list of all installed packages
 
@@ -330,15 +273,11 @@ HOME_DIR. A fake temporary home directory will be used instead.
 If the executed script is a symlink with a different name, said name
 will be used as the command name.
 For instance, if the script is a symlink with the name \"wine\" it will
-automatically run wine during launch.
-
-Running Conty without any arguments from a graphical interface (for
-example, from a file manager) will automatically launch the Conty's
-graphical interface."
+automatically run wine during launch."
 }
 
 cmd_mount_image() {
-	mountpoint "$mount_point" >/dev/null && return
+	mountpoint "$mount_point" >/dev/null 2>&1 && return
 	mkdir -p "$mount_point"
 
 	if [ "$dwarfs_image" = 1 ]; then
@@ -397,10 +336,11 @@ cmd_export_desktop_files() {
 	fi
 	mkdir -p "$applications_dir"
 	local mount_application_dir="$mount_point"/usr/share/applications
-	local variables
-	for v in "${conty_variables[@]}"; do
-		if [ -n "${!v}" ]; then
-			variables="$v='${!v}' $variables"
+	local value variables
+	for v in $conty_variables; do
+		value="$(env | grep "$v" | cut -d= -f2)"
+		if [ -n "${value}" ]; then
+			variables="$v='$value' $variables"
 		fi
 	done
 
@@ -409,7 +349,6 @@ cmd_export_desktop_files() {
 	fi
 
 	echo "Exporting..."
-	shopt -s nullglob
 	for f in find "$mount_application_dir" -type f -name '*.desktop'; do
 		while read -r line; do
 			local key value
@@ -422,7 +361,6 @@ cmd_export_desktop_files() {
 			fi
 		done < "$f" > "$applications_dir"/"${f%.desktop}"-conty.desktop
 	done
-	shopt -u nullglob
 
 	echo "Desktop files have been exported"
 }
@@ -430,12 +368,6 @@ cmd_export_desktop_files() {
 cmd_list_packages() {
 	cmd_mount_image
 	run_bwrap --ro-bind "$mount_point"/var /var pacman -Q
-}
-
-cmd_gui() {
-	cmd_mount_image
-	export -f run_gui
-	run_bwrap bash -c run_gui
 }
 
 cmd_extract_image() {
@@ -477,7 +409,6 @@ case "$1" in
 	-l) command='list_packages'; shift;;
 	-d) command='export_desktop_files'; shift;;
 	-m) command='mount_image'; cleanup_done=1; shift;;
-	-g) command='gui'; shift;;
 	-e) command='extract_image'; shift;;
 	-V) command='show_image_version'; shift;;
     -h|'') command='help'; shift;;
@@ -485,10 +416,6 @@ case "$1" in
 	-v) exec echo "$script_version";;
     --|*) ;;
 esac
-
-# Increase file descriptors limit in case soft and hard limits are different
-# Useful for unionfs-fuse and for some games
-ulimit -n "$(ulimit -Hn)" &>/dev/null
 
 if [ -L "$script_literal" ]; then
 	cmd_run "$script_name" "$@"

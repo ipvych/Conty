@@ -278,7 +278,7 @@ ldd_tree() {
 }
 
 stage "Creating archive with utilities"
-packages=(bash busybox bubblewrap squashfuse squashfs-tools musl gcc)
+packages=(busybox bubblewrap squashfuse squashfs-tools musl gcc)
 [ -n "$USE_DWARFS" ] && packages+=(dwarfs)
 declare -a needed_packages
 mapfile -t needed_packages < <(comm -23 \
@@ -290,7 +290,7 @@ if [ -z "$ENABLE_CHAOTIC_AUR" ]; then
 fi
 pacman --needed --noconfirm -S "${needed_packages[@]}"
 
-executables=(bash bwrap squashfuse unsquashfs busybox)
+executables=(busybox bwrap squashfuse unsquashfs)
 [ -n "$USE_DWARFS" ] && executables+=(dwarfs dwarfsextract mkdwarfs)
 mkdir -p /opt/conty/utils/bin
 for e in "${executables[@]}"; do
