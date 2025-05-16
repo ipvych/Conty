@@ -248,17 +248,12 @@ fi
 
 if [ "${#AUR_PACKAGES[@]}" -ne 0 ]; then
 	stage "Installing AUR packages defined in settings.sh"
-	# Parsing json with grep is ugly it but saves us from installing devel packages unnecesarily
 	info "Checking if packages are present in AUR"
-	declare -a grep_arguments
-	for pkg in $(printf '%s\n' "${AUR_PACKAGES[@]}" | sort -u); do
-		grep_arguments+=(-e "\"Name\":\"$pkg\"")
-	done
 	declare -a missing_packages
 	mapfile -t missing_packages < <(comm -23 \
 										 <(printf '%s\n' "${AUR_PACKAGES[@]}" | sort -u) \
-										 <(curl -s 'https://aur.archlinux.org/packages-meta-v1.json.gz' | gunzip |
-											   grep -o "${grep_arguments[@]}" | sed 's/".*":"\(.*\)"/\1/g' | sort -u))
+										 <(curl -s 'https://aur.archlinux.org/packages.gz' \
+											   | gunzip | sort -u))
 	if [ "${#missing_packages[@]}" -ne 0 ]; then
 		info "Following packages are not available in AUR:" "${missing_packages[@]}"
 		exit 1
