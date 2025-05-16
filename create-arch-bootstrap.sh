@@ -162,10 +162,16 @@ info "Enabling fetch of packages from host pacman cache"
 sed -i 's!#CacheDir.*!CacheDir = /var/cache/pacman/pkg /var/cache/pacman/host_pkg!' /etc/pacman.conf
 info "Disabling extraction of nvidia firmware and man pages"
 sed -i 's!#NoExtract.*!NoExtract = usr/lib/firmware/nvidia/\* usr/share/man/\*!' /etc/pacman.conf
+info "Making pacman read drop-in configuration from /etc/pacman.conf.d"
+mkdir -p /etc/pacman.conf.d
+grep -q 'Include = /etc/pacman.conf.d/\*.conf' /etc/pacman.conf || \
+	echo 'Include = /etc/pacman.conf.d/*.conf' >> /etc/pacman.conf
+# pacman complains when glob does not match anything
+touch /etc/pacman.conf.d/empty.conf
 info "Enabling multilib repository"
 echo '
 [multilib]
-Include = /etc/pacman.d/mirrorlist' >> /etc/pacman.conf
+Include = /etc/pacman.d/mirrorlist' > /etc/pacman.conf.d/10-multilib.conf
 pacman --noconfirm -Sy
 
 stage "Setting up pacman keyring"
@@ -179,9 +185,8 @@ if [ -n "$ENABLE_CHAOTIC_AUR" ]; then
 	pacman-key --recv-key "$chaotic_aur_key" --keyserver keyserver.ubuntu.com
 	pacman-key --lsign-key "$chaotic_aur_key"
 	pacman --noconfirm -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst'
-	echo '
-[chaotic-aur]
-Include = /etc/pacman.d/chaotic-mirrorlist' >> /etc/pacman.conf
+	echo '[chaotic-aur]
+Include = /etc/pacman.d/chaotic-mirrorlist' > /etc/pacman.conf.d/99-chaotic-aur.conf
 	pacman --noconfirm -Sy
 fi
 
@@ -192,9 +197,23 @@ if [ -n "$ENABLE_ALHP_REPO" ]; then
 	else
 		install_aur_packages alhp-keyring alhp-mirrorlist
 	fi
-	sed -i "s/#\[multilib\]/#/" /etc/pacman.conf
-	sed -i "s/\[core\]/\[core-x86-64-v$ALHP_FEATURE_LEVEL\]\nInclude = \/etc\/pacman.d\/alhp-mirrorlist\n\n\[extra-x86-64-v$ALHP_FEATURE_LEVEL\]\nInclude = \/etc\/pacman.d\/alhp-mirrorlist\n\n\[core\]/" /etc/pacman.conf
-	sed -i "s/\[multilib\]/\[multilib-x86-64-v$ALHP_FEATURE_LEVEL\]\nInclude = \/etc\/pacman.d\/alhp-mirrorlist\n\n\[multilib\]/" /etc/pacman.conf
+	rm -f /etc/pacman.conf.d/10-multilib.conf
+	sed -i "/\[core\]/,/Include/"' s/^/#/' /etc/pacman.conf
+	sed -i "/\[extra\]/,/Include/"' s/^/#/' /etc/pacman.conf
+	echo "[core-x86-64-v$ALHP_FEATURE_LEVEL]
+Include = /etc/pacman.d/alhp-mirrorlist
+[core]
+Include = /etc/pacman.d/mirrorlist
+
+[extra-x86-64-v$ALHP_FEATURE_LEVEL]
+Include = /etc/pacman.d/alhp-mirrorlist
+[extra]
+Include = /etc/pacman.d/mirrorlist
+
+[multilib-x86-64-v$ALHP_FEATURE_LEVEL]
+Include = /etc/pacman.d/alhp-mirrorlist
+[multilib]
+Include = /etc/pacman.d/mirrorlist" > /etc/pacman.conf.d/00-alhp.conf
 	pacman --noconfirm -Sy
 fi
 
