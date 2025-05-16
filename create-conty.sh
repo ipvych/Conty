@@ -20,16 +20,9 @@ if [ ! -f "$script_dir"/conty-start.sh ]; then
 	exit 1
 fi
 
-utils="$bootstrap"/opt/conty/utils.tar.xz
-if [ ! -f "$utils" ]; then
-	echo "Utils are missing from bootstrap.  Make sure bootstrap build script finished successfully"
-	exit 1
-fi
-echo "Extracting $utils"
-rm -rf "$utils_dir"
-mkdir -p "$utils_dir"
-if ! tar -C "$utils_dir" -xf "$utils"; then
-	echo "Error occured while trying to extract $utils"
+init="$bootstrap"/opt/conty/init
+if [ ! -f "$init" ]; then
+	echo "Init script is missing from bootstrap.  Make sure bootstrap build script finished successfully"
 	exit 1
 fi
 
@@ -52,25 +45,6 @@ if [ ! -f "${image_path}" ] || [ -z "${USE_EXISTING_IMAGE}" ]; then
 	fi
 fi
 
-# Write out file provided as $1, then marker that conty uses to extract files
-# for the rest of provided files then the content of those files
-bundle_conty() {
-	cat -- "$1" && shift
-	local count=1
-	while :; do
-		file="${!count}"
-		[ -z "$file" ] && break
-		printf '%s@%s@%s\n' "$(stat -c%a "$file")" "$(stat -c%s "$file")" "$(basename "$file")"
-		count=$((count + 1))
-	done
-	printf '@CONTY_MARKER_END@\n'
-	cat -- "$@"
-}
-
-bundle_conty "$utils_dir"/bin/conty_init \
-			 "$script_dir"/conty-start.sh \
-			 "$utils_dir"/bin/busybox \
-			 "$utils" \
-			 "$image_path" > "$build_dir"/conty.sh
+cat "$init" "$image_path" > "$build_dir"/conty.sh
 chmod +x "$build_dir"/conty.sh
 echo "Conty created and ready to use!"

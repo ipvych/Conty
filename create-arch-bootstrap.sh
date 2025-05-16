@@ -277,7 +277,7 @@ ldd_tree() {
 	done
 }
 
-stage "Creating archive with utilities"
+stage "Creating init script"
 packages=(busybox bubblewrap squashfuse squashfs-tools musl gcc)
 [ -n "$USE_DWARFS" ] && packages+=(dwarfs)
 declare -a needed_packages
@@ -290,7 +290,7 @@ if [ -z "$ENABLE_CHAOTIC_AUR" ]; then
 fi
 pacman --needed --noconfirm -S "${needed_packages[@]}"
 
-executables=(busybox bwrap squashfuse unsquashfs)
+executables=(bwrap squashfuse unsquashfs)
 [ -n "$USE_DWARFS" ] && executables+=(dwarfs dwarfsextract mkdwarfs)
 mkdir -p /opt/conty/utils/bin
 for e in "${executables[@]}"; do
@@ -302,20 +302,35 @@ for e in "${executables[@]}"; do
 	ldd_tree "$(command -v "$e")";
 done | sort -u | xargs -I{} cp {} /opt/conty/utils/lib
 
-info "Creating init program"
-init=/opt/conty/utils/bin/conty_init
-init_size=0
-while :; do
-	musl-gcc -static -Oz -D PROGRAM_SIZE="$init_size" -o "$init" /opt/conty/init.c
-	strip -s "$init"
-	[ "$init_size" -eq "$(stat -c%s "$init")" ] && break
-	init_size="$(stat -c%s "$init")"
-done
+info "Creating archive with utilities"
+utils='/opt/conty/utils.tar.xz'
+busybox tar c -J -f "$utils" -C /opt/conty/utils .
 
-info "Creating archive"
-busybox tar c -J -f /opt/conty/utils.tar.xz -C /opt/conty/utils .
-info "Cleaning up leftover packages & directories"
-rm -r /opt/conty/utils
+info "Creating init program"
+busybox="$(command -v busybox)"
+script='/opt/conty/conty-start.sh'
+
+init_size=0
+busybox_size="$(stat -c%s "$busybox")"
+utils_size="$(stat -c%s "$utils")"
+script_size="$(stat -c%s "$script")"
+
+init_out='/opt/conty/init_out'
+while :; do
+	musl-gcc -static -Oz \
+			 -D PROGRAM_SIZE="$init_size" \
+			 -D BUSYBOX_SIZE="$busybox_size" \
+			 -D SCRIPT_SIZE="$script_size" \
+			 -D UTILS_SIZE="$utils_size" \
+			 -o "$init_out" /opt/conty/init.c
+	strip -s "$init_out"
+	[ "$init_size" -eq "$(stat -c%s "$init_out")" ] && break
+	init_size="$(stat -c%s "$init_out")"
+done
+cat "$init_out" "$busybox" "$script" "$utils" > /opt/conty/init
+
+info "Removing unneeded packages & files"
+rm -r /opt/conty/utils "$utils"
 pacman --noconfirm -Rsu "${needed_packages[@]}"
 
 stage "Clearing pacman cache"

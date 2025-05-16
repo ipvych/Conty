@@ -1,9 +1,8 @@
 #!/bin/sh
 # shellcheck disable=3043 # local keyword is supported by busybox sh
 
-LD_PRELOAD_ORIG="$LD_PRELOAD"
-LD_LIBRARY_PATH_ORIG="$LD_LIBRARY_PATH"
-unset LD_PRELOAD LD_LIBRARY_PATH
+# NOTE 2025-05-16: Busybox sh as provided in arch repository runs bundled
+# utilities without $PATH search which this script relies on
 
 LC_ALL_ORIG="$LC_ALL"
 export LC_ALL=C
@@ -20,31 +19,41 @@ fi
 # Conty version
 script_version="1.28"
 
-# Full path to the script
-if [ -n "${BASH_SOURCE[0]}" ]; then
-	script_literal="${BASH_SOURCE[0]}"
-else
-	script_literal="${0}"
+# Full path to conty is provided as first argument by init
+conty="$1"; shift
+script="$0"
+conty_name="$(basename "$conty")"
+script_name="$(basename "$script")"
+program_size="$CONTY_PROGRAM_SIZE"; unset CONTY_PROGRAM_SIZE
+busybox_size="$CONTY_BUSYBOX_SIZE"; unset CONTY_BUSYBOX_SIZE
+script_size="$CONTY_SCRIPT_SIZE"; unset CONTY_SCRIPT_SIZE
+utils_size="$CONTY_UTILS_SIZE"; unset CONTY_UTILS_SIZE
+utils_offset=$((program_size + busybox_size + script_size))
+image_offset=$((utils_offset + utils_size))
 
-	if [ "${script_literal}" = "$(basename "${script_literal}")" ]; then
-		script_literal="$(command -v "${0}")"
-	fi
-fi
-script_name="$(basename "$script_literal")"
-script="$(readlink -f "$script_literal")"
-script_id="$$"
-# MD5 of the first 4 MB and the last 1 MB of the script
-script_md5="$(head -c 4000000 "$script" | md5sum | head -c 7)"_"$(tail -c 1000000 "$script" | md5sum | head -c 7)"
 conty_home="${XDG_DATA_HOME:-$HOME/.local/share}/conty"
-image="$conty_home/content/image"
-working_dir="$conty_home/run_$script_md5"
-mkdir -p "$working_dir"
-
 conty_variables='DISABLE_NET DISABLE_X11 HOME_DIR QUIET_MODE SANDBOX SANDBOX_LEVEL USE_SYS_UTILS XEPHYR_SIZE CUSTOM_MNT'
 
-# Detect if the image is compressed with DwarFS or SquashFS
-[ "$(head -c 6 "$image")" = "DWARFS" ] && dwarfs_image=1
-mount_point="${CUSTOM_MNT:-$working_dir/mnt}"
+if [ -z "$USE_SYS_UTILS" ]; then
+	utils_dir="$conty_home/utils"
+	if [ ! -d "$utils_dir" ]; then
+		mkdir -p "$utils_dir"
+		tail -c +"$((utils_offset + 1))" "$conty" | head -c "$utils_size" \
+			| tar x -J -C "$utils_dir"
+	fi
+
+	LD_LIBRARY_PATH_ORIG="$LD_LIBRARY_PATH"
+	PATH_ORIG="$PATH"
+	export PATH="$utils_dir/bin:$PATH" LD_LIBRARY_PATH="$utils_dir/lib"
+	unset utils_dir
+fi
+
+# MD5 of the first 4 MB and the last 1 MB of the conty
+script_md5="$(head -c 4000000 "$conty" | md5sum | head -c 7)"_"$(tail -c 1000000 "$conty" | md5sum | head -c 7)"
+mount_point="${CUSTOM_MNT:-$conty_home/mnt_$script_md5}"
+if [ "$(tail -c +"$((image_offset + 1))" "$conty" | head -c 6)" = "DWARFS" ]; then
+	 dwarfs_image=1
+fi
 
 # Check if FUSE is installed
 if ! command -v fusermount3 1>/dev/null && ! command -v fusermount 1>/dev/null; then
@@ -85,8 +94,12 @@ run_bwrap () {
 		 --ro-bind-try /etc/machine-id /etc/machine-id \
 		 --setenv XDG_DATA_DIRS "/usr/local/share:/usr/share:$XDG_DATA_DIRS"
 
-    if [ -z "$SANDBOX" ]; then
-		bwrap_path="$bwrap_path:$PATH"
+	if [ -z "$SANDBOX" ]; then
+		if [ -n "$PATH_ORIG" ]; then
+			bwrap_path="$bwrap_path:$PATH_ORIG"
+		else
+			bwrap_path="$bwrap_path:$PATH"
+		fi
 		args --bind-try /tmp /tmp \
 			 --bind-try /home /home \
 			 --bind-try /mnt /mnt \
@@ -156,8 +169,11 @@ run_bwrap () {
 	for v in $conty_variables; do
 		args --unsetenv "$v"
 	done
-	[ -n "$LD_PRELOAD_ORIG" ] && args --setenv LD_PRELOAD "$LD_PRELOAD_ORIG"
-	[ -n "$LD_LIBRARY_PATH_ORIG" ] && args --setenv LD_LIBRARY_PATH "$LD_LIBRARY_PATH_ORIG"
+	if [ -n "$LD_LIBRARY_PATH_ORIG" ]; then
+		args --setenv LD_LIBRARY_PATH "$LD_LIBRARY_PATH_ORIG"
+	else
+		args --unsetenv LD_LIBRARY_PATH
+	fi
 	if [ -n "$LC_ALL_ORIG" ]; then
 		args --setenv LC_ALL "$LC_ALL_ORIG"
 	else
@@ -173,10 +189,10 @@ run_bwrap () {
 
 run_xephyr() {
 	XEPHYR_SIZE="${XEPHYR_SIZE:-800x600}"
-	local xephyr_display="$((script_id+2))"
+	local xephyr_display="$(($$+2))"
 
 	if [ -S /tmp/.X11-unix/X"$xephyr_display" ]; then
-		xephyr_display="$((script_id+10))"
+		xephyr_display="$(($$+10))"
 	fi
 
 	QUIET_MODE=1 DISABLE_NET=1 SANDBOX_LEVEL=2 run_bwrap \
@@ -187,7 +203,7 @@ run_xephyr() {
 }
 
 cmd_help() {
-	echo "Usage: $script_name [COMMAND] [ARGUMENTS]
+	echo "Usage: $conty_name [COMMAND] [ARGUMENTS]
 
 
 Arguments:
@@ -303,7 +319,8 @@ cmd_mount_image() {
 			cachesize="64M"
 		fi
 
-		dwarfs "$image" "$mount_point" \
+		dwarfs "$conty" "$mount_point" \
+			   -o offset="$image_offset" \
 	           -o debuglevel=error \
 	           -o workers="$workers" \
 	           -o mlock=try \
@@ -315,7 +332,7 @@ cmd_mount_image() {
 	           -o tidy_interval=5m
 		return "$?"
 	else
-		squashfuse -o ro "$image" "$mount_point"
+		squashfuse -o offset="$image_offset",ro "$conty" "$mount_point"
 		return "$?"
 	fi
 }
@@ -367,18 +384,18 @@ cmd_export_desktop_files() {
 
 cmd_list_packages() {
 	cmd_mount_image
-	run_bwrap --ro-bind "$mount_point"/var /var pacman -Q
+	SANDBOX='' run_bwrap pacman -Q
 }
 
 cmd_extract_image() {
-	files_dir="$(basename "$script")_files"
+	files_dir="$conty_name"_files
 	echo "Extracting to $files_dir..."
 	mkdir "$files_dir"
 
 	if [ "$dwarfs_image" = 1 ]; then
-		exec dwarfsextract -i "$image" -o "$(basename "$script")"_files
+		exec dwarfsextract -i "$conty" -O "$image_offset" -o "$files_dir"
 	else
-		exec unsquashfs -user-xattrs -d "$(basename "$script")"_files "$image"
+		exec unsquashfs -user-xattrs -d "$files_dir" -o "$image_offset" "$conty"
 	fi
 }
 
@@ -398,7 +415,7 @@ cleanup() {
 		umount --lazy "$mount_point" 2>/dev/null
 
     if [ -z "$(ls "$mount_point" 2>/dev/null)" ]; then
-        rm -rf "$working_dir"
+        rm -rf "$mount_point"
     fi
 	cleanup_done=1
 }
@@ -417,7 +434,7 @@ case "$1" in
     --|*) ;;
 esac
 
-if [ -L "$script_literal" ]; then
+if [ "$conty_name" != "$script_name" ]; then
 	cmd_run "$script_name" "$@"
 else
 	cmd_"$command" "$@"
