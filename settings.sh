@@ -122,7 +122,7 @@ REFLECTOR_ARGS=(--verbose --latest 5 --protocol https --score 10 --sort rate)
 
 # Enable this variable to use the system-wide mksquashfs/mkdwarfs instead
 # of those provided by the Conty project
-USE_SYS_UTILS=0
+USE_SYS_UTILS=
 
 # Supported compression algorithms: lz4, zstd, gzip, xz, lzo
 # These are the algorithms supported by the integrated squashfuse
