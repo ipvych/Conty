@@ -32,7 +32,7 @@ utils_offset=$((program_size + busybox_size + script_size))
 image_offset=$((utils_offset + utils_size))
 
 conty_home="${XDG_DATA_HOME:-$HOME/.local/share}/conty"
-conty_variables='DISABLE_NET DISABLE_X11 HOME_DIR QUIET_MODE SANDBOX SANDBOX_LEVEL USE_SYS_UTILS XEPHYR_SIZE CUSTOM_MNT'
+conty_variables='DISABLE_NET HOME_DIR QUIET_MODE SANDBOX SANDBOX_LEVEL USE_SYS_UTILS CUSTOM_MNT'
 
 if [ -z "$USE_SYS_UTILS" ]; then
 	utils_dir="$conty_home/utils"
@@ -146,24 +146,10 @@ run_bwrap () {
 	else
 		args --unshare-net
 	fi
-
-	if [ -n "$DISABLE_X11" ]; then
-		args --unsetenv "DISPLAY" --unsetenv "XAUTHORITY"
-	else
-		args --tmpfs /tmp/.X11-unix
-		if [ "$SANDBOX_LEVEL" -ge 3 ]; then
-			args --ro-bind-try /tmp/.X11-unix/X"$xephyr_display" /tmp/.X11-unix/X"$xephyr_display" \
-				 --setenv "DISPLAY" :"$xephyr_display"
-		else
-			local XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
-			if [ -n "$XAUTHORITY" ]; then
-				args --ro-bind-try "$XAUTHORITY" "$XAUTHORITY"
-			fi
-
-			for s in find /tmp/.X11-unix; do
-				args --bind-try "$s" "$s"
-			done
-		fi
+	args --dir /tmp/.X11-unix
+	args --bind-try /tmp/.X11-unix /tmp/.X11-unix
+	if [ -n "$XAUTHORITY" ]; then
+		args --ro-bind-try "$XAUTHORITY" "$XAUTHORITY"
 	fi
 
 	for v in $conty_variables; do
@@ -185,21 +171,6 @@ run_bwrap () {
 	bwrap --args 3 "$@"
 	exec 3>&-
 	rm "$args_file"
-}
-
-run_xephyr() {
-	XEPHYR_SIZE="${XEPHYR_SIZE:-800x600}"
-	local xephyr_display="$(($$+2))"
-
-	if [ -S /tmp/.X11-unix/X"$xephyr_display" ]; then
-		xephyr_display="$(($$+10))"
-	fi
-
-	QUIET_MODE=1 DISABLE_NET=1 SANDBOX_LEVEL=2 run_bwrap \
-				 --bind-try /tmp/.X11-unix /tmp/.X11-unix \
-				 Xephyr -noreset -ac -br -screen "$XEPHYR_SIZE" :"$xephyr_display" 1>/dev/null 2>&1 &
-	echo "$!"
-	QUIET_MODE=1 run_bwrap openbox &
 }
 
 cmd_help() {
@@ -237,14 +208,6 @@ bubblewrap, so all bubblewrap arguments are supported as well.
 Environment variables:
   DISABLE_NET       Disables network access.
 
-  DISABLE_X11       Disables access to X server.
-
-                    Note: Even with this variable enabled applications
-                    can still access your X server if it doesn't use
-                    XAUTHORITY and listens to the abstract socket. This
-                    can be solved by enabling XAUTHORITY, disabling the
-                    abstract socket or by disabling network access.
-
   HOME_DIR          Sets the home directory to a custom location.
                     For example: HOME_DIR=\"$HOME/custom_home\"
                     Note: If this variable is set the home directory
@@ -265,15 +228,11 @@ Environment variables:
                       1: Isolates all user files.
                       2: Additionally disables dbus and hides all
                          running processes.
-                      3: Additionally disables network access and
-                         isolates X11 server with Xephyr.
+                      3: Additionally disables network access.
                     The default is 1.
 
   USE_SYS_UTILS     Tells the script to use squashfuse/dwarfs and bwrap
                     installed on the system instead of the builtin ones.
-
-  XEPHYR_SIZE       Sets the size of the Xephyr window. The default is
-                    800x600.
 
   CUSTOM_MNT        Sets a custom mount point for the Conty. This allows
                     Conty to be used with already mounted filesystems.
@@ -401,11 +360,7 @@ cmd_extract_image() {
 
 cmd_run() {
 	cmd_mount_image
-	if [ "$SANDBOX" = 1 ] && [ "$SANDBOX_LEVEL" -ge 3 ]; then
-		xephyr_pid="$(run_xephyr)"
-	fi
 	run_bwrap "$@"
-	[ -n "$xephyr_pid" ] && wait "$xephyr_pid"
 }
 
 cleanup_done=
