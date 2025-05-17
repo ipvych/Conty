@@ -26,16 +26,15 @@ check_command_available() {
 
 # Script is reexecuted from within chroot with INSIDE_BOOTSTRAP set to perform bootstrap
 if [ -z "$INSIDE_BOOTSTRAP" ]; then
+	check_command_available curl tar unshare
 	source settings.sh
 	NESTING_LEVEL=0
+
 	stage "Preparing bootstrap"
-
-	check_command_available curl tar unshare
-
-	script_dir="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
-	build_dir="$script_dir/$BUILD_DIR"
+	build_dir="$(realpath "$BUILD_DIR")"
 	bootstrap="$build_dir"/root.x86_64
 	mkdir -p "$build_dir"
+	cp init.c ./*.sh "$build_dir"
 	cd "$build_dir"
 
 	info "Downloading Arch Linux bootstrap sha256sum from $BOOTSTRAP_SHA256SUM_FILE_URL"
@@ -89,8 +88,8 @@ if [ -z "$INSIDE_BOOTSTRAP" ]; then
 		tr -d '-' < /proc/sys/kernel/random/uuid \
 			| install -Dm0444 /dev/fd/0 "$bootstrap"/etc/machine-id
 		mkdir -p "$bootstrap"/opt/conty
-		install -Dm644 -t "$bootstrap"/opt/conty -- "$script_dir"/init.c
-		install -Dm755 -t "$bootstrap"/opt/conty -- "$script_dir"/*.sh
+		install -Dm644 -t "$bootstrap"/opt/conty -- "$build_dir"/init.c
+		install -Dm755 -t "$bootstrap"/opt/conty -- "$build_dir"/*.sh
 	}
 	# shellcheck disable=2317
 	run_bootstrap() {
@@ -99,7 +98,7 @@ if [ -z "$INSIDE_BOOTSTRAP" ]; then
 			   /opt/conty/create-conty.sh
 	}
 
-	export bootstrap script_dir
+	export bootstrap build_dir
 	export -f prepare_bootstrap run_bootstrap
 	info "Entering bootstrap namespace"
 	if ! run_unshared bash -c "prepare_bootstrap && run_bootstrap"; then

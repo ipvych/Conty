@@ -2,8 +2,7 @@
 
 set -e
 source settings.sh
-script_dir="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
-build_dir="${script_dir}/$BUILD_DIR"
+build_dir="$(realpath "$BUILD_DIR")"
 bootstrap="$build_dir/root.x86_64"
 
 if [ ! -d "${bootstrap}" ]; then

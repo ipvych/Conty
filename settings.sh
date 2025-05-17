@@ -163,5 +163,6 @@ USE_EXISTING_IMAGE=
 # existing files while configuring or developing it
 ALWAYS_EXTRACT_BOOTSTRAP=1
 
-# Directory where image will be built relative to script directory
+# Directory where image will be built. Can be either path relative to directory
+# where conty is located or full path
 BUILD_DIR="build"
