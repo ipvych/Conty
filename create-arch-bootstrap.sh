@@ -100,14 +100,40 @@ if [ -z "$INSIDE_BOOTSTRAP" ]; then
 	export bootstrap script_dir
 	export -f prepare_bootstrap run_bootstrap
 	info "Entering bootstrap namespace"
-	if run_unshared bash -c "prepare_bootstrap && run_bootstrap"; then
-		info "Done!"
-		exit
-	else
+	if ! run_unshared bash -c "prepare_bootstrap && run_bootstrap"; then
 		info "Error occured while building bootstrap"
 		exit 1
 	fi
+
+	info "Bootstrap finished successfully"
+	launch_wrapper() {
+		if [ -z "$USE_SYS_UTILS" ]; then
+			PATH="$bootstrap/bin:$PATH" LD_PRELOAD_PATH="$bootstrap/lib" "$@"
+		else
+			"$@"
+		fi
+	}
+
+	image_path="$build_dir"/image
+	if [ ! -f "$image_path" ] || [ -z "$USE_EXISTING_IMAGE" ]; then
+		rm -f "$image_path"
+		stage "Compressing image"
+		if [ -n "$USE_DWARFS" ]; then
+			launch_wrapper mkdwarfs -i "$bootstrap" -o "$image_path" "${DWARFS_COMPRESSOR_ARGUMENTS[@]}"
+		else
+			launch_wrapper mksquashfs "$bootstrap" "$image_path" "${SQUASHFS_COMPRESSOR_ARGUMENTS[@]}"
+		fi
+	fi
+
+	info "Creating conty"
+	init="$bootstrap"/opt/conty/init
+	conty="$build_dir"/conty.sh
+	cat "$init" "$image_path" > "$conty"
+	chmod +x "$conty"
+	info "Conty created and is ready to use at $conty!"
+	exit
 fi
+
 # From here on we are running inside bootstrap
 # Populate PATH and LANG environment variables with defaults
 source /etc/profile
