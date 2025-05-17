@@ -96,7 +96,7 @@ if [ -z "$INSIDE_BOOTSTRAP" ]; then
 	run_bootstrap() {
 		exec chroot "$bootstrap" /usr/bin/env -i \
 			   USER='root' HOME='/root' NESTING_LEVEL=2 INSIDE_BOOTSTRAP=1 \
-			   /opt/conty/create-arch-bootstrap.sh
+			   /opt/conty/create-conty.sh
 	}
 
 	export bootstrap script_dir

@@ -7,7 +7,7 @@ build_dir="${script_dir}/$BUILD_DIR"
 bootstrap="$build_dir/root.x86_64"
 
 if [ ! -d "${bootstrap}" ]; then
-	echo "Bootstrap at $bootstrap is missing. Use the create-arch-bootstrap.sh script to create it"
+	echo "Bootstrap at $bootstrap is missing. Use the create-conty.sh script to create it"
     exit 1
 fi
 
