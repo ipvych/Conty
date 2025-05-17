@@ -39,21 +39,24 @@ if [ -z "$INSIDE_BOOTSTRAP" ]; then
 	cd "$build_dir"
 
 	info "Downloading Arch Linux bootstrap sha256sum from $BOOTSTRAP_SHA256SUM_FILE_URL"
-	curl -#LO "$BOOTSTRAP_SHA256SUM_FILE_URL"
-	for link in "${BOOTSTRAP_DOWNLOAD_URLS[@]}"; do
-		info "Downloading Arch Linux archive bootstrap from $link"
-		curl -#LO "$link"
+	curl -LO "$BOOTSTRAP_SHA256SUM_FILE_URL"
+	info "Verifying integrity of existing bootstrap archive if it exists"
+	if ! sha256sum --ignore-missing -c sha256sums.txt &>/dev/null; then
+		for link in "${BOOTSTRAP_DOWNLOAD_URLS[@]}"; do
+			info "Downloading Arch Linux archive bootstrap from $link"
+			curl -LO "$link"
 
-		info "Verifying the integrity of the bootstrap"
-		if sha256sum --ignore-missing -c sha256sums.txt &>/dev/null; then
-			bootstrap_is_good=1
-			break 1
+			info "Verifying the integrity of the bootstrap archive"
+			if sha256sum --ignore-missing -c sha256sums.txt &>/dev/null; then
+				bootstrap_is_good=1
+				break 1
+			fi
+			info "Download failed, trying again with different mirror"
+		done
+		if [ -z "$bootstrap_is_good" ]; then
+			info "Bootstrap download failed or its checksum is incorrect"
+			exit 1
 		fi
-		info "Download failed, trying again with different mirror"
-	done
-	if [ -z "$bootstrap_is_good" ]; then
-		info "Bootstrap download failed or its checksum is incorrect"
-		exit 1
 	fi
 
 	run_unshared() {
