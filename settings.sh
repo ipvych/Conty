@@ -157,5 +157,11 @@ BOOTSTRAP_SHA256SUM_FILE_URL='https://archlinux.org/iso/latest/sha256sums.txt'
 # Otherwise the script will always create a new image
 USE_EXISTING_IMAGE=
 
+# When set to non-empty value existing bootstrap will always be removed
+# and reextracted from downloaded archive
+# Useful to set this to empty value to speed up conty build by reusing
+# existing files while configuring or developing it
+ALWAYS_EXTRACT_BOOTSTRAP=1
+
 # Directory where image will be built relative to script directory
 BUILD_DIR="build"

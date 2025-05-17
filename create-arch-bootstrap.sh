@@ -63,10 +63,12 @@ if [ -z "$INSIDE_BOOTSTRAP" ]; then
 		unshare --uts --ipc --user --mount --map-auto --map-root-user --pid --fork -- "$@"
 	}
 
-	info "Removing previous bootstrap"
-	run_unshared rm -rf "$bootstrap"
-	info "Extracting bootstrap from archive"
-	run_unshared tar xf archlinux-bootstrap-x86_64.tar.zst
+	if [ ! -d "$bootstrap" ] || [ -n "$ALWAYS_EXTRACT_BOOTSTRAP" ]; then
+		info "Removing previous bootstrap"
+		run_unshared rm -rf "$bootstrap"
+		info "Extracting bootstrap from archive"
+		run_unshared tar xf archlinux-bootstrap-x86_64.tar.zst
+	fi
 
 	# shellcheck disable=2317
 	prepare_bootstrap() {
@@ -389,15 +391,13 @@ rm -rf /var/cache/pacman/pkg
 stage "Enabling font hinting"
 mkdir -p /etc/fonts/conf.d
 rm -f /etc/fonts/conf.d/10-hinting-slight.conf
-ln -s /usr/share/fontconfig/conf.avail/10-hinting-full.conf /etc/fonts/conf.d
+ln -sf /usr/share/fontconfig/conf.avail/10-hinting-full.conf /etc/fonts/conf.d
 
 stage "Creating files and directories for application compatibility"
 # Create some empty files and directories
 # This is needed for bubblewrap to be able to bind real files/dirs to them
 # later in the conty-start.sh script
-mkdir /media
-mkdir /initrd
-mkdir -p /usr/share/steam/compatibilitytools.d
+mkdir -p /media /initrd /usr/share/steam/compatibilitytools.d
 touch /etc/asound.conf
 touch /etc/localtime
 chmod 755 /root
