@@ -33,8 +33,11 @@ if [ -z "$INSIDE_BOOTSTRAP" ]; then
 	stage "Preparing bootstrap"
 	build_dir="$(realpath "$BUILD_DIR")"
 	bootstrap="$build_dir"/root.x86_64
+	conty_files='init.c create-conty.sh conty-start.sh settings.sh'
 	mkdir -p "$build_dir"
-	cp init.c ./*.sh "$build_dir"
+	# shellcheck disable=2086 # Using normal variable because arrays cannot be exported
+	cp $conty_files "$build_dir"
+
 	cd "$build_dir"
 
 	info "Downloading Arch Linux bootstrap sha256sum from $BOOTSTRAP_SHA256SUM_FILE_URL"
@@ -88,8 +91,8 @@ if [ -z "$INSIDE_BOOTSTRAP" ]; then
 		tr -d '-' < /proc/sys/kernel/random/uuid \
 			| install -Dm0444 /dev/fd/0 "$bootstrap"/etc/machine-id
 		mkdir -p "$bootstrap"/opt/conty
-		install -Dm644 -t "$bootstrap"/opt/conty -- "$build_dir"/init.c
-		install -Dm755 -t "$bootstrap"/opt/conty -- "$build_dir"/*.sh
+		# shellcheck disable=2086
+		cp $conty_files "$bootstrap"/opt/conty
 	}
 	# shellcheck disable=2317
 	run_bootstrap() {
@@ -98,7 +101,7 @@ if [ -z "$INSIDE_BOOTSTRAP" ]; then
 			   /opt/conty/create-conty.sh
 	}
 
-	export bootstrap build_dir
+	export bootstrap conty_files
 	export -f prepare_bootstrap run_bootstrap
 	info "Entering bootstrap namespace"
 	if ! run_unshared bash -c "prepare_bootstrap && run_bootstrap"; then
@@ -379,6 +382,7 @@ while :; do
 	init_size="$(stat -c%s "$init_out")"
 done
 cat "$init_out" "$busybox" "$script" "$utils" > /opt/conty/init
+rm "$init_out"
 
 info "Removing unneeded packages & files"
 rm -r /opt/conty/utils "$utils"
