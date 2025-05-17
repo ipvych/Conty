@@ -221,10 +221,17 @@ stage "Upgrading base system"
 pacman --noconfirm -Syu
 
 stage "Installing base packages"
-pacman --noconfirm --needed -S base reflector squashfs-tools fakeroot
+pacman --noconfirm --needed -S squashfs-tools
 
-stage "Generating mirrorlist using reflector"
-reflector --connection-timeout 10 --download-timeout 10 --protocol https --score 10 --sort rate --save /etc/pacman.d/mirrorlist
+if [ -n "$USE_REFLECTOR" ]; then
+	stage "Generating mirrorlist using reflector"
+	info "Installing reflector"
+	pacman --noconfirm --needed -S reflector
+	info "Generating mirrorlist"
+	reflector "${REFLECTOR_ARGS[@]}" --save /etc/pacman.d/mirrorlist
+	info "Cleaning up"
+	pacman --noconfirm -Rsu reflector
+fi
 
 if [ "${#PACKAGES[@]}" -ne 0 ]; then
 	stage "Installing packages defined in settings.sh"

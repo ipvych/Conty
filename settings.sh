@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # shellcheck shell=bash disable=2034
 
 # Packages to install
@@ -112,6 +113,12 @@ DEFAULT_MIRRORS=(
 	'https://ftpmirror.infania.net/mirror/archlinux/$repo/os/$arch'
 	'https://mirror.rackspace.com/archlinux/$repo/os/$arch'
 )
+
+# Set this to any value to use reflector when building bootstrap to fetch
+# up to date mirrors. Reflector will be called with provided args and write
+# mirrorlist to /etc/pacman.d/mirrorlist
+USE_REFLECTOR=1
+REFLECTOR_ARGS=(--verbose --latest 5 --protocol https --score 10 --sort rate)
 
 # Enable this variable to use the system-wide mksquashfs/mkdwarfs instead
 # of those provided by the Conty project
