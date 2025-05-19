@@ -323,31 +323,28 @@ cleanup() {
 }
 trap 'cleanup &' EXIT
 
-while getopts 'nsdepmhHV-' opt; do
-	case "$opt" in
-		n) DISABLE_NET=1;;
-		s) SANDBOX=1;;
-		d) ENABLE_DBUS=1;;
-		e) KEEP_ENV=1;;
-		p) PERSIST_HOME=1;;
-		m) cmd_mount_image; cleanup_done=1; exit ;;
-		h) cmd_help; exit ;;
-		H) exec bwrap --help ;;
-		V) cmd_show_image_version; exit ;;
-		-|*) break
-	esac
-done
-shift $((OPTIND-1))
-
-if [ "$#" -eq 0 ]; then
-	cmd_help
-	exit
-fi
-
 if [ "$conty_name" != "$script_name" ]; then
-	set -- "$script_name" "$@"
+	cmd_run "$script_name" "$@"
+elif [ "$#" -eq 0 ]; then
+	cmd_help
+	exit 1
+else
+	while getopts 'nsdepmhHV-' opt; do
+		case "$opt" in
+			n) DISABLE_NET=1;;
+			s) SANDBOX=1;;
+			d) ENABLE_DBUS=1;;
+			e) KEEP_ENV=1;;
+			p) PERSIST_HOME=1;;
+			m) cmd_mount_image; cleanup_done=1; exit ;;
+			h) cmd_help; exit ;;
+			H) exec bwrap --help ;;
+			V) cmd_show_image_version; exit ;;
+			-|*) break
+		esac
+	done
+	shift $((OPTIND-1))
+	cmd_run "$@"
 fi
-
-cmd_run "$@"
 
 cleanup
