@@ -146,7 +146,7 @@ source /etc/profile
 source /opt/conty/settings.sh
 
 install_aur_packages() {
-	useradd -m aurbuilder
+	useradd -r -m aurbuilder || true
 	echo 'aurbuilder ALL=(ALL) NOPASSWD: /usr/bin/pacman' \
 		| install -Dm0440 /dev/fd/0 /etc/sudoers.d/aurbuilder
 
