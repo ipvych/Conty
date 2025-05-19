@@ -21,20 +21,30 @@ fi
 # Conty version
 script_version="1.28"
 
+# Environment variables used by conty to unset before running bwrap
+conty_variables='CONTY_PROGRAM_SIZE CONTY_BUSYBOX_SIZE CONTY_SCRIPT_SIZE CONTY_UTILS_SIZE
+USE_SYS_UTILS HOME_DIR CUSTOM_MNT DISABLE_NET SANDBOX ENABLE_DBUS KEEP_ENV PERSIST_HOME'
+
 # Full path to conty is provided as first argument by init
 conty="$1"; shift
 script="$0"
 conty_name="$(basename "$conty")"
 script_name="$(basename "$script")"
-program_size="$CONTY_PROGRAM_SIZE"; unset CONTY_PROGRAM_SIZE
-busybox_size="$CONTY_BUSYBOX_SIZE"; unset CONTY_BUSYBOX_SIZE
-script_size="$CONTY_SCRIPT_SIZE"; unset CONTY_SCRIPT_SIZE
-utils_size="$CONTY_UTILS_SIZE"; unset CONTY_UTILS_SIZE
+program_size="$CONTY_PROGRAM_SIZE"
+busybox_size="$CONTY_BUSYBOX_SIZE"
+script_size="$CONTY_SCRIPT_SIZE"
+utils_size="$CONTY_UTILS_SIZE"
 utils_offset=$((program_size + busybox_size + script_size))
 image_offset=$((utils_offset + utils_size))
+if [ "$(tail -c +"$((image_offset + 1))" "$conty" | head -c 6)" = "DWARFS" ]; then
+	 dwarfs_image=1
+fi
+# MD5 of the first 4 MB and the last 1 MB of the conty
+script_md5="$(head -c 4000000 "$conty" | md5sum | head -c 7)"_"$(tail -c 1000000 "$conty" | md5sum | head -c 7)"
 
 conty_home="${XDG_DATA_HOME:-$HOME/.local/share}/conty"
-persist_home_dir="${HOME_DIR:-$conty_home/home}"; unset HOME_DIR
+persist_home_dir="${HOME_DIR:-$conty_home/home}"
+mount_point="${CUSTOM_MNT:-$conty_home/mnt_$script_md5}"
 
 if [ -z "$USE_SYS_UTILS" ]; then
 	utils_dir="$conty_home/utils"
@@ -47,19 +57,10 @@ if [ -z "$USE_SYS_UTILS" ]; then
 	LD_LIBRARY_PATH_ORIG="$LD_LIBRARY_PATH"
 	PATH_ORIG="$PATH"
 	export PATH="$utils_dir/bin:$PATH" LD_LIBRARY_PATH="$utils_dir/lib"
-	unset utils_dir
-fi
-unset USE_SYS_UTILS
-
-# MD5 of the first 4 MB and the last 1 MB of the conty
-script_md5="$(head -c 4000000 "$conty" | md5sum | head -c 7)"_"$(tail -c 1000000 "$conty" | md5sum | head -c 7)"
-mount_point="${CUSTOM_MNT:-$conty_home/mnt_$script_md5}"
-if [ "$(tail -c +"$((image_offset + 1))" "$conty" | head -c 6)" = "DWARFS" ]; then
-	 dwarfs_image=1
 fi
 
 # Check if FUSE is installed
-if ! command -v fusermount3 1>/dev/null && ! command -v fusermount 1>/dev/null; then
+if ! command -v fusermount3 >/dev/null && ! command -v fusermount >/dev/null; then
 	echo "Please install fuse2 or fuse3 and run the script again."
 	exit 1
 fi
@@ -185,7 +186,8 @@ run_bwrap () {
 		args --unsetenv LC_ALL
 	fi
 
-	unset DISABLE_NET SANDBOX ENABLE_DBUS KEEP_ENV PERSIST_HOME
+	# shellcheck disable=2086
+	unset $conty_variables
 	exec 3< "$args_file"
 	bwrap --args 3 "$@"
 	exec 3>&-
@@ -251,11 +253,7 @@ EOF
 }
 
 cmd_mount_image() {
-	if [ -n "$CUSTOM_MNT" ]; then
-	   unset CUSTOM_MNT
-	   cleanup_done=1
-	   return
-	fi
+	[ -n "$CUSTOM_MNT" ] && cleanup_done=1 && return
 	mountpoint "$mount_point" >/dev/null 2>&1 && return
 	mkdir -p "$mount_point"
 
