@@ -34,8 +34,7 @@ utils_offset=$((program_size + busybox_size + script_size))
 image_offset=$((utils_offset + utils_size))
 
 conty_home="${XDG_DATA_HOME:-$HOME/.local/share}/conty"
-conty_variables='HOME_DIR USE_SYS_UTILS CUSTOM_MNT'
-persist_home_dir="${HOME_DIR:-$conty_home/home}"
+persist_home_dir="${HOME_DIR:-$conty_home/home}"; unset HOME_DIR
 
 if [ -z "$USE_SYS_UTILS" ]; then
 	utils_dir="$conty_home/utils"
@@ -50,6 +49,7 @@ if [ -z "$USE_SYS_UTILS" ]; then
 	export PATH="$utils_dir/bin:$PATH" LD_LIBRARY_PATH="$utils_dir/lib"
 	unset utils_dir
 fi
+unset USE_SYS_UTILS
 
 # MD5 of the first 4 MB and the last 1 MB of the conty
 script_md5="$(head -c 4000000 "$conty" | md5sum | head -c 7)"_"$(tail -c 1000000 "$conty" | md5sum | head -c 7)"
@@ -174,9 +174,6 @@ run_bwrap () {
 		esac
 	done
 
-	for v in $conty_variables; do
-		args --unsetenv "$v"
-	done
 	if [ -n "$LD_LIBRARY_PATH_ORIG" ]; then
 		args --setenv LD_LIBRARY_PATH "$LD_LIBRARY_PATH_ORIG"
 	else
@@ -254,6 +251,11 @@ EOF
 }
 
 cmd_mount_image() {
+	if [ -n "$CUSTOM_MNT" ]; then
+	   unset CUSTOM_MNT
+	   cleanup_done=1
+	   return
+	fi
 	mountpoint "$mount_point" >/dev/null 2>&1 && return
 	mkdir -p "$mount_point"
 
