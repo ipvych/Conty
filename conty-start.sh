@@ -4,6 +4,8 @@
 # NOTE 2025-05-16: Busybox sh as provided in arch repository runs bundled
 # utilities without $PATH search which this script relies on
 
+set -e
+
 LC_ALL_ORIG="$LC_ALL"
 export LC_ALL=C
 
@@ -32,7 +34,8 @@ utils_offset=$((program_size + busybox_size + script_size))
 image_offset=$((utils_offset + utils_size))
 
 conty_home="${XDG_DATA_HOME:-$HOME/.local/share}/conty"
-conty_variables='DISABLE_NET HOME_DIR QUIET_MODE SANDBOX SANDBOX_LEVEL USE_SYS_UTILS CUSTOM_MNT'
+conty_variables='HOME_DIR USE_SYS_UTILS CUSTOM_MNT'
+persist_home_dir="${HOME_DIR:-$conty_home/home}"
 
 if [ -z "$USE_SYS_UTILS" ]; then
 	utils_dir="$conty_home/utils"
@@ -66,79 +69,84 @@ if command -v fusermount3 1>/dev/null; then
 fi
 
 run_bwrap () {
-	local XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-	local wayland_socket="$XDG_RUNTIME_DIR/${WAYLAND_DISPLAY:-wayland-0}"
-    local bwrap_path="/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/lib/jvm/default/bin"
-	local SANDBOX_LEVEL="${SANDBOX_LEVEL:-0}"
-	local args_file
+	local args_file cwd XDG_RUNTIME_DIR
 	args_file="$(mktemp)"
+	cwd="$(pwd)"
+	XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 	args() {
 		printf -- '%s\0' "$@" >> "$args_file"
 	}
 
-	if [ -n "$RW_ROOT"  ]; then
-		args --bind "$mount_point" /
-	else
-		args --ro-bind "$mount_point" /
-	fi
-
-	args --dev-bind /dev /dev \
+	args --ro-bind "$mount_point" / \
+		 --dev-bind /dev /dev \
 		 --ro-bind /sys /sys \
          --proc /proc \
          --ro-bind-try /etc/asound.conf /etc/asound.conf \
 		 --ro-bind-try /etc/localtime /etc/localtime \
-         --ro-bind-try /usr/share/steam/compatibilitytools.d /usr/share/steam/compatibilitytools.d \
 		 --ro-bind-try /etc/nsswitch.conf /etc/nsswitch.conf \
 		 --ro-bind-try /etc/passwd /etc/passwd \
-		 --ro-bind-try /etc/group /etc/group \
-		 --ro-bind-try /etc/machine-id /etc/machine-id \
-		 --setenv XDG_DATA_DIRS "/usr/local/share:/usr/share:$XDG_DATA_DIRS"
+		 --ro-bind-try /etc/group /etc/group
 
 	if [ -z "$SANDBOX" ]; then
-		if [ -n "$PATH_ORIG" ]; then
-			bwrap_path="$bwrap_path:$PATH_ORIG"
-		else
-			bwrap_path="$bwrap_path:$PATH"
-		fi
-		args --bind-try /tmp /tmp \
-			 --bind-try /home /home \
-			 --bind-try /mnt /mnt \
-			 --bind-try /initrd /initrd \
-			 --bind-try /media /media \
-			 --bind-try /run /run \
-			 --bind-try /var /var \
-			 --bind-try /opt /opt
+		for dir in /home /tmp /var /run /mnt/ /media /opt /initrd; do
+			args --bind-try "$dir" "$dir"
+		done
     else
-        args --tmpfs /home \
-			 --tmpfs /mnt \
-			 --tmpfs /initrd \
-			 --tmpfs /media \
+		[ -z "$KEEP_ENV" ] && args --clearenv
+		local runtime_dir
+		runtime_dir="/run/user/$(id -u)"
+        args --tmpfs /tmp \
 			 --tmpfs /var \
 			 --tmpfs /run \
 			 --symlink /run /var/run \
-			 --tmpfs /tmp \
+			 --perms 755 --dir "$runtime_dir" \
+			 --setenv XDG_RUNTIME_DIR "$runtime_dir" \
+			 --ro-bind-try "$XDG_RUNTIME_DIR"/pulse "$runtime_dir"/pulse \
+			 --ro-bind-try "$XDG_RUNTIME_DIR"/pipewire-0 "$runtime_dir"/pipewire-0 \
+			 --unshare-pid --unshare-user --unshare-uts \
+			 --unsetenv PATH \
 			 --new-session
-        if [ "$SANDBOX_LEVEL" -ge 3 ]; then
-            DISABLE_NET=1
-        fi
-        if [ "$SANDBOX_LEVEL" -ge 2 ]; then
-            args --unshare-pid \
-                 --unshare-user-try \
-				 --setenv XDG_RUNTIME_DIR "$XDG_RUNTIME_DIR" \
-				 --ro-bind-try "$wayland_socket" "$wayland_socket" \
-				 --ro-bind-try "$XDG_RUNTIME_DIR"/pulse "$XDG_RUNTIME_DIR"/pulse \
-				 --ro-bind-try "$XDG_RUNTIME_DIR"/pipewire-0 "$XDG_RUNTIME_DIR"/pipewire-0 \
-                 --unsetenv "DBUS_SESSION_BUS_ADDRESS"
-        elif [ "$SANDBOX_LEVEL" -ge 1 ]; then
-            args --setenv XDG_RUNTIME_DIR "$XDG_RUNTIME_DIR" \
-				 --bind-try "$XDG_RUNTIME_DIR" "$XDG_RUNTIME_DIR" \
-				 --bind-try /run/dbus /run/dbus
-        fi
-    fi
 
-	if [ -n "$HOME_DIR" ]; then
-		args --bind "$HOME_DIR" "$HOME"
-	fi
+		if [ -n "$PERSIST_HOME" ]; then
+			mkdir -p "$persist_home_dir"
+			args --bind "persist_home_dir" /home
+			# If we are inside home dir then adjust working directory so that
+			# programs provided as relative path can be ran
+			case "$cwd" in
+				"$persist_home_dir"*) args --chdir /home/"${cwd#"$persist_home_dir"}" ;;
+			esac
+		else
+			args --tmpfs /home
+		fi
+		args --setenv HOME /home
+		# Same as home dir check above but for mount point location
+		case "$cwd" in
+			"$mount_point"*) args --chdir /"${cwd#"$mount_point"}" ;;
+		esac
+
+		if [ -n "$WAYLAND_DISPLAY" ]; then
+			args --ro-bind-try "$XDG_RUNTIME_DIR"/"$WAYLAND_DISPLAY" "$runtime_dir"/"$WAYLAND_DISPLAY" \
+				 --setenv WAYLAND_DISPLAY "$WAYLAND_DISPLAY"
+		fi
+
+		if [ -n "$DISPLAY" ]; then
+			args --dir /tmp/.X11-unix
+			args --bind-try /tmp/.X11-unix/X"${DISPLAY##:}" /tmp/.X11-unix/X"${DISPLAY##:}" \
+				 --setenv DISPLAY "$DISPLAY"
+		fi
+		if [ -n "$XAUTHORITY" ]; then
+			args --ro-bind "$XAUTHORITY" /home/.Xauthority \
+				 --setenv XAUTHORITY /home/.Xauthority
+		fi
+
+		if [ -z "$ENABLE_DBUS" ]; then
+			args --unsetenv DBUS_SESSION_BUS_ADDRESS
+		else
+			args --bind-try "$runtime_dir"/bus "$runtime_dir"/bus \
+				 --bind-try /run/dbus /run/dbus \
+				 --setenv DBUS_SESSION_BUS_ADDRESS "$DBUS_SESSION_BUS_ADDRESS"
+		fi
+    fi
 
 	if [ -z "$DISABLE_NET" ]; then
 		args --ro-bind-try /etc/resolv.conf /etc/resolv.conf \
@@ -146,11 +154,25 @@ run_bwrap () {
 	else
 		args --unshare-net
 	fi
-	args --dir /tmp/.X11-unix
-	args --bind-try /tmp/.X11-unix /tmp/.X11-unix
-	if [ -n "$XAUTHORITY" ]; then
-		args --ro-bind-try "$XAUTHORITY" "$XAUTHORITY"
-	fi
+
+	# Source environment variables from within bootstrap
+	bwrap --ro-bind "$mount_point" / --dev-bind /dev /dev \
+		  /bin/env -i /bin/bash -c 'source /etc/profile; env' \
+		  | while read -r line; do
+		key="$(echo "$line" | cut -d= -f1)"
+		value="$(echo "$line" | cut -d= -f2-)"
+		case "$key" in
+			PWD|SHLVL|_) ;;
+			PATH)
+				if [ -z "$SANDBOX" ]; then
+					args --setenv PATH "$value:${PATH_ORIG:-$PATH}"
+				else
+					args --setenv PATH "$value"
+				fi
+				;;
+			*) args --setenv "$key" "$value" ;;
+		esac
+	done
 
 	for v in $conty_variables; do
 		args --unsetenv "$v"
@@ -165,8 +187,8 @@ run_bwrap () {
 	else
 		args --unsetenv LC_ALL
 	fi
-	args --setenv PATH "$bwrap_path"
 
+	unset DISABLE_NET SANDBOX ENABLE_DBUS KEEP_ENV PERSIST_HOME
 	exec 3< "$args_file"
 	bwrap --args 3 "$@"
 	exec 3>&-
@@ -177,55 +199,52 @@ cmd_help() {
 	cat <<EOF
 $conty_name $script_version
 
-Usage: $conty_name [ARGUMENTS] COMMAND
+Usage: $conty_name [OPTION]... COMMAND
 
-Arguments:
-  -h    Display help and exit.
-  -H    Display bubblewrap help and exit.
+Sandboxing:
+  -n    Disable network access.
+  -s    Enable a sandbox which, by default does following things:
+        - Hides user & system files by mounting everything as tmpfs.
+        - Mounts X11 socket pointed to by \$DISPLAY environment variable and
+          Xauthority file pointed by \$XAUTHORITY environment variable if they
+          are set.
+        - Mounts wayland socket pointed to by \$WAYLAND_DISPLAY environment
+          variable if it is set.
+        - Clears environment variables.
+        You can make sandbox less or more strict by using some arguments below
+        or by passing any arguents supported by bubblewrap.
+  -d    Allow dbus access when sandbox is enabled.
+  -e    Do not clear environment variables when sandbox is enabled.
+  -p    Persist home directory when sandbox is enabled.
+        By default home is persisted at $persist_home_dir.
+        You can customize it by setting \$HOME_DIR environment variable.
+
+Miscellaneous:
   -m    Mount/unmount the image
         The image will be mounted if it's not, unmounted otherwise.
+  -h    Display this help message and exit.
+  -H    Display bubblewrap help and exit.
   -V    Display version of the image and exit.
-  --    Treat the rest of arguments as arguments to bubblewrap.
+  --    Treat the rest of arguments as COMMAND.
 
-Arguments that don't match any of the above will be passed directly to
-bubblewrap, so all bubblewrap arguments are supported as well.
+COMMAND is passed directly to bubblewrap, so all bubblewrap arguments are
+supported.
 
 Environment variables:
-  DISABLE_NET       Disables network access.
-
-  HOME_DIR          Sets the home directory to a custom location.
-                    For example: HOME_DIR=\"$HOME/custom_home\"
-                    Note: If this variable is set the home directory
-                    inside the container will still appear as $HOME,
-                    even though the custom directory is used.
-
-  SANDBOX           Enables a sandbox.
-                    To control which files and directories are available
-                    inside the container, you can use the --bind and
-                    --ro-bind launch arguments.
-                    (See bubblewrap help for more info).
-
-  SANDBOX_LEVEL     Controls the strictness of the sandbox.
-                    Available levels:
-                      1: Isolates all user files.
-                      2: Additionally disables dbus and hides all
-                         running processes.
-                      3: Additionally disables network access.
-                    The default is 1.
-
+  DISABLE_NET       Same as providing -n flag.
+  SANDBOX           Same as providing -s flag.
+  ENABLE_DBUS       Same as providing -d flag.
+  KEEP_ENV          Same as providing -e flag.
+  PERSIST_HOME      Same as providing -p flag.
+  HOME_DIR          Sets the directory where home directory will be persisted
+                    when sandbox is enabled and -p flag is provided.
   USE_SYS_UTILS     Tells the script to use squashfuse/dwarfs and bwrap
                     installed on the system instead of the builtin ones.
-
   CUSTOM_MNT        Sets a custom mount point for the Conty. This allows
                     Conty to be used with already mounted filesystems.
                     Conty will not mount its image on this mount point,
                     but it will use files that are already present
                     there.
-
-Additional notes:
-System directories/files will not be available inside the container if
-you set the SANDBOX variable but don't bind (mount) any items or set
-HOME_DIR. A fake temporary home directory will be used instead.
 
 If the executed script is a symlink with a different name, said name
 will be used as the command name.
@@ -302,19 +321,31 @@ cleanup() {
 }
 trap 'cleanup &' EXIT
 
-command='run'
-case "$1" in
-	-m) command='mount_image'; cleanup_done=1; shift;;
-	-V) command='show_image_version'; shift;;
-    -h|'') command='help'; shift;;
-	-H) exec bwrap --help;;
-    --|*) ;;
-esac
+while getopts 'nsdepmhHV-' opt; do
+	case "$opt" in
+		n) DISABLE_NET=1;;
+		s) SANDBOX=1;;
+		d) ENABLE_DBUS=1;;
+		e) KEEP_ENV=1;;
+		p) PERSIST_HOME=1;;
+		m) cmd_mount_image; cleanup_done=1; exit ;;
+		h) cmd_help; exit ;;
+		H) exec bwrap --help ;;
+		V) cmd_show_image_version; exit ;;
+		-|*) break
+	esac
+done
+shift $((OPTIND-1))
+
+if [ "$#" -eq 0 ]; then
+	cmd_help
+	exit
+fi
 
 if [ "$conty_name" != "$script_name" ]; then
-	cmd_run "$script_name" "$@"
-else
-	cmd_"$command" "$@"
+	set -- "$script_name" "$@"
 fi
+
+cmd_run "$@"
 
 cleanup
