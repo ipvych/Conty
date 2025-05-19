@@ -174,33 +174,18 @@ run_bwrap () {
 }
 
 cmd_help() {
-	echo "Usage: $conty_name [COMMAND] [ARGUMENTS]
+	cat <<EOF
+$conty_name $script_version
 
+Usage: $conty_name [ARGUMENTS] COMMAND
 
 Arguments:
-  -e    Extract the image
-
-  -h    Display this text
-
-  -H    Display bubblewrap help
-
-  -l    Show a list of all installed packages
-
-  -d    Export desktop files from Conty into the application menu of
-        your desktop environment.
-        Note that not all applications have desktop files, and also that
-        desktop files are tied to the current location of Conty, so if
-        you move or rename it, you will need to re-export them.
-        To remove the exported files, use this argument again.
-
+  -h    Display help and exit.
+  -H    Display bubblewrap help and exit.
   -m    Mount/unmount the image
         The image will be mounted if it's not, unmounted otherwise.
-
-  -v    Display version of this script
-
-  -V    Display version of the image
-
-  --    Treat the rest of arguments as arguments to bubblewrap
+  -V    Display version of the image and exit.
+  --    Treat the rest of arguments as arguments to bubblewrap.
 
 Arguments that don't match any of the above will be passed directly to
 bubblewrap, so all bubblewrap arguments are supported as well.
@@ -213,9 +198,6 @@ Environment variables:
                     Note: If this variable is set the home directory
                     inside the container will still appear as $HOME,
                     even though the custom directory is used.
-
-  QUIET_MODE        Disables all non-error Conty messages.
-                    Doesn't affect the output of applications.
 
   SANDBOX           Enables a sandbox.
                     To control which files and directories are available
@@ -248,7 +230,8 @@ HOME_DIR. A fake temporary home directory will be used instead.
 If the executed script is a symlink with a different name, said name
 will be used as the command name.
 For instance, if the script is a symlink with the name \"wine\" it will
-automatically run wine during launch."
+automatically run wine during launch.
+EOF
 }
 
 cmd_mount_image() {
@@ -301,63 +284,6 @@ cmd_show_image_version() {
 	cat "$mount_point"/version
 }
 
-cmd_export_desktop_files() {
-	cmd_mount_image
-	local applications_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications/Conty"
-
-	if [ -d "$applications_dir" ]; then
-		rm -rf "$applications_dir"
-		echo "Desktop files have been removed"
-		return
-	fi
-	mkdir -p "$applications_dir"
-	local mount_application_dir="$mount_point"/usr/share/applications
-	local value variables
-	for v in $conty_variables; do
-		value="$(env | grep "$v" | cut -d= -f2)"
-		if [ -n "${value}" ]; then
-			variables="$v='$value' $variables"
-		fi
-	done
-
-	if [ -n "$variables" ]; then
-		variables="/usr/bin/env $variables "
-	fi
-
-	echo "Exporting..."
-	for f in find "$mount_application_dir" -type f -name '*.desktop'; do
-		while read -r line; do
-			local key value
-			key="$(echo "$line" | cut -d= -f1)"
-			value="$(echo "$line" | tail -d= -f2-)"
-			if [ "$key" = "Name" ]; then
-				echo "Name=$value (Conty)"
-			elif [ "$key" = "Exec" ]; then
-				echo "Exec=${variables}\"${script}\" $value"
-			fi
-		done < "$f" > "$applications_dir"/"${f%.desktop}"-conty.desktop
-	done
-
-	echo "Desktop files have been exported"
-}
-
-cmd_list_packages() {
-	cmd_mount_image
-	SANDBOX='' run_bwrap pacman -Q
-}
-
-cmd_extract_image() {
-	files_dir="$conty_name"_files
-	echo "Extracting to $files_dir..."
-	mkdir "$files_dir"
-
-	if [ "$dwarfs_image" = 1 ]; then
-		exec dwarfsextract -i "$conty" -O "$image_offset" -o "$files_dir"
-	else
-		exec unsquashfs -user-xattrs -d "$files_dir" -o "$image_offset" "$conty"
-	fi
-}
-
 cmd_run() {
 	cmd_mount_image
 	run_bwrap "$@"
@@ -378,14 +304,10 @@ trap 'cleanup &' EXIT
 
 command='run'
 case "$1" in
-	-l) command='list_packages'; shift;;
-	-d) command='export_desktop_files'; shift;;
 	-m) command='mount_image'; cleanup_done=1; shift;;
-	-e) command='extract_image'; shift;;
 	-V) command='show_image_version'; shift;;
     -h|'') command='help'; shift;;
 	-H) exec bwrap --help;;
-	-v) exec echo "$script_version";;
     --|*) ;;
 esac
 
