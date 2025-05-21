@@ -6,61 +6,48 @@
 # Apart from packages from the official Arch repos, you can also specify
 # packages from the Chaotic-AUR repo if you set ENABLE_CHAOTIC_AUR
 PACKAGES=(
-	# audio
-	alsa-lib lib32-alsa-lib alsa-plugins lib32-alsa-plugins libpulse
-	lib32-libpulse alsa-tools alsa-utils pipewire lib32-pipewire pipewire-pulse pipewire-jack lib32-pipewire-jack
-	# core
-	xorg-xwayland qt6-wayland wayland lib32-wayland qt5-wayland xorg-server-xephyr gamescope
 	# video
-	mesa lib32-mesa vulkan-radeon lib32-vulkan-radeon
-	vulkan-intel lib32-vulkan-intel
-	vulkan-icd-loader lib32-vulkan-icd-loader vulkan-mesa-layers
-	lib32-vulkan-mesa-layers libva-intel-driver lib32-libva-intel-driver
-	intel-media-driver mesa-utils vulkan-tools libva-utils lib32-mesa-utils
-	# wine
-	wine-staging winetricks-git wine-nine wineasio
-	freetype2 lib32-freetype2 libxft lib32-libxft
-	flex lib32-flex fluidsynth lib32-fluidsynth
-	libxrandr lib32-libxrandr xorg-xrandr libldap lib32-libldap
-	mpg123 lib32-mpg123 libxcomposite lib32-libxcomposite
-	libxi lib32-libxi libxinerama lib32-libxinerama libxss lib32-libxss
-	libxslt lib32-libxslt openal lib32-openal
-	krb5 lib32-krb5 libpulse lib32-libpulse alsa-plugins
-	lib32-alsa-plugins alsa-lib lib32-alsa-lib gnutls lib32-gnutls
-	giflib lib32-giflib gst-libav gst-plugin-pipewire gst-plugins-ugly
-	gst-plugins-bad gst-plugins-bad-libs
-	gst-plugins-base-libs lib32-gst-plugins-base-libs gst-plugins-base lib32-gst-plugins-base
-	gst-plugins-good lib32-gst-plugins-good gstreamer lib32-gstreamer
-	libpng lib32-libpng v4l-utils lib32-v4l-utils
-	libgpg-error lib32-libgpg-error libjpeg-turbo lib32-libjpeg-turbo
-	libgcrypt lib32-libgcrypt ncurses lib32-ncurses ocl-icd lib32-ocl-icd
-	libxcrypt-compat lib32-libxcrypt-compat libva lib32-libva sqlite lib32-sqlite
-	gtk3 lib32-gtk3 vulkan-icd-loader lib32-vulkan-icd-loader
-	sdl2-compat lib32-sdl2-compat vkd3d lib32-vkd3d libgphoto2
-	openssl-1.1 lib32-openssl-1.1 libnm lib32-libnm
-	cabextract wget gamemode lib32-gamemode mangohud lib32-mangohud
-	# development
-	base-devel git meson mingw-w64-gcc cmake
+	lib32-mesa
+	lib32-vulkan-radeon
+	lib32-vulkan-intel
+	vulkan-icd-loader lib32-vulkan-icd-loader
+	lib32-vulkan-mesa-layers
+	libva-intel-driver lib32-libva-intel-driver
+	# wine & it's deps
+	wine-staging winetricks wine-nine
+	dosbox
+	lib32-flex
+	lib32-fluidsynth
+	gst-libav lib32-gst-plugins-base lib32-gst-plugins-good gst-plugin-pipewire
+	gst-plugins-ugly gst-plugins-bad
+	gst-plugins-bad-libs
+	lib32-libpng
+	ocl-icd lib32-ocl-icd
+	vkd3d lib32-vkd3d
+	libgphoto2
+	# lutris optional deps
+	python-protobuf
+	python-pefile
+	xorg-xgamma
+	umu-launcher
+	innoextract
+	gvfs
+	vulkan-tools
 	# gaming
-	lutris python-protobuf steam steam-native-runtime steamtinkerlaunch
-	minigalaxy gamehub legendary prismlauncher bottles playonlinux obs-studio
-	retroarch retroarch-assets-ozone libretro-beetle-psx-hw sunshine
-	libretro-blastem libretro-bsnes libretro-dolphin duckstation
-	libretro-gambatte libretro-melonds libretro-mgba libretro-nestopia
-	libretro-parallel-n64 libretro-picodrive libretro-ppsspp
-	libretro-retrodream libretro-yabause pcsx2-avx-git
-	# extra
-	nano ttf-dejavu ttf-liberation firefox mpv geany pcmanfm
-	htop qbittorrent speedcrunch gpicview file-roller openbox lxterminal
-	yt-dlp minizip nautilus genymotion jre17-openjdk gnome-themes-extra
+	steam-native-runtime lutris
+	# fonts
+	ttf-dejavu ttf-liberation
+	# tools
+	nano pcmanfm gpicview featherpad lxterminal gamescope
+	mesa-utils
 )
 
 # If you want to install AUR packages, specify them in this variable
-AUR_PACKAGES=(faugus-launcher-git)
+AUR_PACKAGES=()
 
 # Chaotic-AUR is a repository containing precompiled packages from AUR
 # Set this variable to any value if you want to enable id
-ENABLE_CHAOTIC_AUR=1
+ENABLE_CHAOTIC_AUR=
 
 # ALHP is a repository containing packages from the official Arch Linux
 # repos recompiled with -O3, LTO and optimizations for modern CPUs for
