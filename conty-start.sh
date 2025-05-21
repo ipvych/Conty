@@ -95,7 +95,7 @@ run_bwrap () {
 		 --ro-bind-try /etc/group /etc/group
 
 	if [ -z "$SANDBOX" ]; then
-		for dir in /home /tmp /var /run /mnt/ /media /opt /initrd; do
+		for dir in /home /tmp /run /mnt /media /opt /initrd; do
 			args --bind-try "$dir" "$dir"
 		done
     else
