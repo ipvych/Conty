@@ -8,34 +8,12 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: checkout
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          lfs: 'false'
-
-      - name: Download artifact
-        id: download-artifact
-        uses: dawidd6/action-download-artifact@v6
-        with:
-          workflow: utils.yml
-          workflow_conclusion: success
-          if_no_artifact_found: ignore
-          path: /opt
-
       - name: Build Conty
         run: |
-          if [ -f /opt/Utils/utils.tar.gz ]; then
-              cp /opt/Utils/* .
-          fi
-
-          chmod +x create-arch-bootstrap.sh create-conty.sh
-          sudo ./create-arch-bootstrap.sh && ./create-conty.sh
-
-          if [ "$(stat -c%s conty.sh)" -gt 2097152000 ]; then
-            split -b 2097152000 --numeric-suffixes=1 conty.sh conty.sh_part
-            rm conty.sh
-          fi
-
+          chmod +x create-conty.sh
+          ./create-conty.sh
       - uses: dev-drprasad/delete-tag-and-release@v1.0
         with:
          tag_name: continuous
@@ -49,7 +27,7 @@ jobs:
 
       - uses: softprops/action-gh-release@v1
         with:
-          files: ./conty.sh*
+          files: ./build/conty.sh
           prerelease: true
           draft: false
           tag_name: continuous
