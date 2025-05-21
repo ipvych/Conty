@@ -157,10 +157,10 @@ install_aur_packages() {
 	if ! pacman -Q yay-bin &>/dev/null; then
 		if [ -n "$ENABLE_CHAOTIC_AUR" ]; then
 			info "Installing base-devel and yay"
-			pacman --noconfirm --needed -S base-devel yay
+			pacman --asdeps --noconfirm --needed -S base-devel yay
 		else
 			info "Installing base-devel"
-			pacman --noconfirm --needed -S base-devel
+			pacman --asdeps --noconfirm --needed -S base-devel
 			info "Building yay-bin"
 			sudo -u aurbuilder -- curl -LO 'https://aur.archlinux.org/cgit/aur.git/snapshot/yay-bin.tar.gz'
 			sudo -u aurbuilder -- tar -xf yay-bin.tar.gz
@@ -171,7 +171,7 @@ install_aur_packages() {
 	fi
 	for p in "$@"; do
 		info "Building and installing $p"
-		sudo -u aurbuilder -- yay --needed --removemake --noconfirm -S "$p"
+		sudo -u aurbuilder -- yay --needed --noconfirm -S "$p"
 	done
 
 	info "Cleaning up"
@@ -256,17 +256,12 @@ fi
 stage "Upgrading base system"
 pacman --noconfirm -Syu
 
-stage "Installing base packages"
-pacman --noconfirm --needed -S squashfs-tools
-
 if [ -n "$USE_REFLECTOR" ]; then
 	stage "Generating mirrorlist using reflector"
 	info "Installing reflector"
-	pacman --noconfirm --needed -S reflector
+	pacman --noconfirm --needed --asdeps -S reflector
 	info "Generating mirrorlist"
 	reflector "${REFLECTOR_ARGS[@]}" --save /etc/pacman.d/mirrorlist
-	info "Cleaning up"
-	pacman --noconfirm -Rsu reflector
 fi
 
 if [ "${#PACKAGES[@]}" -ne 0 ]; then
@@ -333,16 +328,16 @@ ldd_tree() {
 }
 
 stage "Creating init script"
-packages=(busybox bubblewrap squashfuse squashfs-tools musl gcc)
 info "Installing required packages"
+pacman --noconfirm -S --asdeps busybox gcc musl
+pacman --noconfirm -S bubblewrap squashfuse squashfs-tools
 if [ -n "$USE_DWARFS"  ]; then
 	if [ -n "$ENABLE_CHAOTIC_AUR" ]; then
-		packages+=(dwarfs)
+		pacman --noconfirm -S dwarfs
 	else
 		install_aur_packages dwarfs
 	fi
 fi
-pacman --needed --noconfirm -S "${packages[@]}"
 
 executables=(bwrap squashfuse mksquashfs)
 [ -n "$USE_DWARFS" ] && executables+=(dwarfs mkdwarfs)
@@ -386,6 +381,10 @@ rm "$init_out"
 
 info "Removing unneeded files"
 rm -r /opt/conty/utils "$utils"
+
+info "Removing unused package dependencies"
+pacman -Qqtd | pacman --noconfirm -Rnsu -
+pacman --noconfirm -Rnsu arch-install-scripts # part of bootstrap
 
 stage "Clearing pacman cache"
 rm -rf /var/cache/pacman/pkg
