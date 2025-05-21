@@ -2,31 +2,29 @@
 
 set -e
 
-bold='\033[1m'
-blue_bold="\033[1;34m"
-clear='\033[0m'
-
 stage() {
-	if [ -n "$NESTING_LEVEL" ] && [ "$NESTING_LEVEL" -gt 0 ]; then
-		printf "$blue_bold:%.0s$clear" $(seq "$NESTING_LEVEL")
+	if [ "$NESTING_LEVEL" -gt 0 ]; then
+		printf '\033[1;34m:%.0s\033[0m' $(seq "$NESTING_LEVEL")
 	fi
-	printf "$bold> %s$clear\n" "$@"
+	printf '\033[1m>'; printf ' %s' "$@"; printf '\033[0m\n'
 }
 info() { NESTING_LEVEL=$((NESTING_LEVEL + 1)) stage "$@"; }
 
 check_command_available() {
-	for cmd in "$@"; do
-		! command -v "$cmd" &>/dev/null && missing_executables+=("$cmd");
-	done
-	if [ "${#missing_executables[@]}" -ne 0 ]; then
-		info "Following commands are required: ${missing_executables[*]}"
+	declare -a found_exe missing_exe
+	mapfile -t found_exe < <(command -v "$@")
+	if [ "${#found_exe[@]}" -ne "$#" ]; then
+		mapfile -t missing_exe < <(comm -23 \
+										<(printf '%s\n' "$@" | sort -u) \
+										<(printf '%s\n' "${found_exe[@]##*/}" | sort -u))
+		info "Following commands are required:" "${missing_exe[@]}"
 		exit 1
 	fi
 }
 
 # Script is reexecuted from within chroot with INSIDE_BOOTSTRAP set to perform bootstrap
 if [ -z "$INSIDE_BOOTSTRAP" ]; then
-	check_command_available curl tar unshare
+	check_command_available cp mv rm tr comm mkdir mount tar sha256sum chroot curl unshare
 	source settings.sh
 	NESTING_LEVEL=0
 
@@ -38,6 +36,9 @@ if [ -z "$INSIDE_BOOTSTRAP" ]; then
 	mkdir -p "$build_dir"
 	# shellcheck disable=2086 # Using normal variable because arrays cannot be exported
 	cp $conty_files "$build_dir"
+	if [ -f "$build_dir"/settings_override.sh ]; then
+	   mv "$build_dir"/settings_override.sh "$build_dir"/settings.sh
+	fi
 	cd "$build_dir"
 
 	info "Downloading Arch Linux bootstrap sha256sum from $BOOTSTRAP_SHA256SUM_FILE_URL"
@@ -110,31 +111,31 @@ if [ -z "$INSIDE_BOOTSTRAP" ]; then
 	fi
 
 	info "Bootstrap finished successfully"
-	launch_wrapper() {
+	run_util() {
 		if [ -z "$USE_SYS_UTILS" ]; then
-			PATH="$bootstrap/bin:$PATH" LD_PRELOAD_PATH="$bootstrap/lib" "$@"
-		else
-			"$@"
+			set -- env PATH="$bootstrap/bin:$PATH" LD_PRELOAD_PATH="$bootstrap/lib" "$@"
 		fi
+		"$@"
 	}
 
+	stage "Building image from bootstrap"
 	image_path="$build_dir"/image
 	if [ ! -f "$image_path" ] || [ -z "$USE_EXISTING_IMAGE" ]; then
 		rm -f "$image_path"
 		stage "Compressing image"
 		if [ -n "$USE_DWARFS" ]; then
-			launch_wrapper mkdwarfs -i "$bootstrap" -o "$image_path" "${DWARFS_COMPRESSOR_ARGUMENTS[@]}"
+			run_util mkdwarfs -i "$bootstrap" -o "$image_path" "${DWARFS_COMPRESSOR_ARGUMENTS[@]}"
 		else
-			launch_wrapper mksquashfs "$bootstrap" "$image_path" "${SQUASHFS_COMPRESSOR_ARGUMENTS[@]}"
+			run_util mksquashfs "$bootstrap" "$image_path" "${SQUASHFS_COMPRESSOR_ARGUMENTS[@]}"
 		fi
 	fi
 
-	info "Creating conty"
+	stage "Creating conty"
 	init="$bootstrap"/opt/conty/init
 	conty="$build_dir"/conty.sh
 	cat "$init" "$image_path" > "$conty"
 	chmod +x "$conty"
-	info "Conty created and is ready to use at $conty!"
+	stage "Conty created and is ready to use at $conty!"
 	exit
 fi
 

@@ -42,21 +42,18 @@ fi
 # MD5 of the first 4 MB and the last 1 MB of the conty
 script_md5="$(head -c 4000000 "$conty" | md5sum | head -c 7)"_"$(tail -c 1000000 "$conty" | md5sum | head -c 7)"
 
-conty_home="${XDG_DATA_HOME:-$HOME/.local/share}/conty"
-persist_home_dir="${HOME_DIR:-$conty_home/home}"
-mount_point="${CUSTOM_MNT:-$conty_home/mnt_$script_md5}"
+conty_config_home="${XDG_CONFIG_HOME:-$HOME/.config}/conty"
+conty_data_home="${XDG_DATA_HOME:-$HOME/.local/share}/conty"
+persist_home_dir="${HOME_DIR:-$conty_data_home/home}"
+mount_point="${CUSTOM_MNT:-$conty_data_home/mnt_$script_md5}"
 
 if [ -z "$USE_SYS_UTILS" ]; then
-	utils_dir="$conty_home/utils"
+	utils_dir="$conty_data_home/utils"
 	if [ ! -d "$utils_dir" ]; then
 		mkdir -p "$utils_dir"
 		tail -c +"$((utils_offset + 1))" "$conty" | head -c "$utils_size" \
 			| tar x -J -C "$utils_dir"
 	fi
-
-	LD_LIBRARY_PATH_ORIG="$LD_LIBRARY_PATH"
-	PATH_ORIG="$PATH"
-	export PATH="$utils_dir/bin:$PATH" LD_LIBRARY_PATH="$utils_dir/lib"
 fi
 
 # Check if FUSE is installed
@@ -68,6 +65,15 @@ fi
 if command -v fusermount3 1>/dev/null; then
 	fuse_version=3
 fi
+
+run_util() {
+	exe="$1"; shift
+	if [ -z "$USE_SYS_UTILS" ]; then
+		"$utils_dir"/lib/ld-linux-x86-64.so.2 --library-path "$utils_dir"/lib "$utils_dir/bin/$exe" "$@"
+	else
+		"$exe" "$@"
+	fi
+}
 
 run_bwrap () {
 	local args_file cwd XDG_RUNTIME_DIR
@@ -166,7 +172,7 @@ run_bwrap () {
 			PWD|SHLVL|_) ;;
 			PATH)
 				if [ -z "$SANDBOX" ]; then
-					args --setenv PATH "$value:${PATH_ORIG:-$PATH}"
+					args --setenv PATH "$value:$PATH"
 				else
 					args --setenv PATH "$value"
 				fi
@@ -175,8 +181,9 @@ run_bwrap () {
 		esac
 	done
 
-	if [ -n "$LD_LIBRARY_PATH_ORIG" ]; then
-		args --setenv LD_LIBRARY_PATH "$LD_LIBRARY_PATH_ORIG"
+	# This is set by run_util so need to set it to system value explicitly
+	if [ -n "$LD_LIBRARY_PATH" ]; then
+		args --setenv LD_LIBRARY_PATH "$LD_LIBRARY_PATH"
 	else
 		args --unsetenv LD_LIBRARY_PATH
 	fi
@@ -189,7 +196,7 @@ run_bwrap () {
 	# shellcheck disable=2086
 	unset $conty_variables
 	exec 3< "$args_file"
-	bwrap --args 3 "$@"
+	run_util bwrap --args 3 "$@"
 	exec 3>&-
 	rm "$args_file"
 }
@@ -218,6 +225,17 @@ Sandboxing:
         By default home is persisted at $persist_home_dir.
         You can customize it by setting \$HOME_DIR environment variable.
 
+Rebuild:
+  -u    Rebuild conty container and exit.
+        This will copy files used to build conty that are included in the image
+        into build directory and produce new conty executable using them. Build
+        settings, if needed can be customized by creating
+        $conty_config_home/settings.sh file which will replace setings file from
+        the image.
+        Rebuild command uses host system utilities to work and will error out
+        if some of them are not available with list of required dependencies.
+  -c    Remove rebuild directory if rebuild was finished successfully
+
 Miscellaneous:
   -m    Mount/unmount the image
         The image will be mounted if it's not, unmounted otherwise.
@@ -235,8 +253,14 @@ Environment variables:
   ENABLE_DBUS       Same as providing -d flag.
   KEEP_ENV          Same as providing -e flag.
   PERSIST_HOME      Same as providing -p flag.
+  REBUILD_CLEAR     Same as providing -c flag.
   HOME_DIR          Sets the directory where home directory will be persisted
                     when sandbox is enabled and -p flag is provided.
+  BUILD_DIR         Sets the directory where conty rebuild will be done.
+                    Can be either relative or full path.
+                    Note that currently setting this path to tmpfs will break
+                    rebuild if there are any AUR packages set to be installed
+                    in settings.
   USE_SYS_UTILS     Tells the script to use squashfuse/dwarfs and bwrap
                     installed on the system instead of the builtin ones.
   CUSTOM_MNT        Sets a custom mount point for the Conty. This allows
@@ -280,29 +304,45 @@ mount_image() {
 			cachesize="64M"
 		fi
 
-		dwarfs "$conty" "$mount_point" \
-			   -o offset="$image_offset" \
-	           -o debuglevel=error \
-	           -o workers="$workers" \
-	           -o mlock=try \
-	           -o no_cache_image \
-	           -o cache_files \
-	           -o cachesize="$cachesize" \
-	           -o decratio=0.6 \
-	           -o tidy_strategy=swap \
-	           -o tidy_interval=5m
+		run_util dwarfs "$conty" "$mount_point" \
+				 -o offset="$image_offset" \
+				 -o debuglevel=error \
+				 -o workers="$workers" \
+				 -o mlock=try \
+				 -o no_cache_image \
+				 -o cache_files \
+				 -o cachesize="$cachesize" \
+				 -o decratio=0.6 \
+				 -o tidy_strategy=swap \
+				 -o tidy_interval=5m
 		return "$?"
 	else
-		squashfuse -o offset="$image_offset",ro "$conty" "$mount_point"
+		run_util squashfuse -o offset="$image_offset",ro "$conty" "$mount_point"
 		return "$?"
+	fi
+}
+
+rebuild() {
+	local build_dir cwd
+	build_dir="${BUILD_DIR:-./conty_build}"
+	mkdir -p "$build_dir"
+	if [ -f "$conty_config_home"/settings.sh ]; then
+		cp "$conty_config_home"/settings.sh "$build_dir"/settings_override.sh
+	fi
+	cwd="$(pwd)"
+	cd "$mount_point"/opt/conty
+	BUILD_DIR="$build_dir" "$mount_point"/opt/conty/create-conty.sh
+	cp "$build_dir"/conty.sh "$cwd"
+	if [ -n "$REBUILD_CLEAR" ]; then
+		unshare --user --map-auto --map-root-user rm -rf "$build_dir"
 	fi
 }
 
 cleanup_done=
 cleanup() {
 	[ -n "$cleanup_done" ] && return
-	fusermount"$fuse_version" -uz "$mount_point" 2>/dev/null || \
-		umount --lazy "$mount_point" 2>/dev/null
+	run_util fusermount"$fuse_version" -uz "$mount_point" 2>/dev/null || \
+		run_util umount --lazy "$mount_point" 2>/dev/null
 
     if [ -z "$(ls "$mount_point" 2>/dev/null)" ]; then
         rm -rf "$mount_point"
@@ -318,13 +358,15 @@ elif [ "$#" -eq 0 ]; then
 	show_help
 	exit 1
 else
-	while getopts 'nsdepmhHV-' opt; do
+	while getopts 'nsdepucmhHV-' opt; do
 		case "$opt" in
 			n) DISABLE_NET=1;;
 			s) SANDBOX=1;;
 			d) ENABLE_DBUS=1;;
 			e) KEEP_ENV=1;;
 			p) PERSIST_HOME=1;;
+			u) cmd='rebuild' ;;
+			c) REBUILD_CLEAR=1 ;;
 			m) mount_image; cleanup_done=1; exit ;;
 			h) show_help; exit ;;
 			H) exec bwrap --help ;;
