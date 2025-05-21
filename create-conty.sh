@@ -196,17 +196,19 @@ if [ "${#AUR_PACKAGES[@]}" -ne 0 ]; then
 fi
 info "Enabling fetch of packages from host pacman cache"
 sed -i 's!#CacheDir.*!CacheDir = /var/cache/pacman/pkg /var/cache/pacman/host_pkg!' /etc/pacman.conf
-info "Disabling extraction of nvidia firmware and man pages"
-sed -i 's!#NoExtract.*!NoExtract = usr/lib/firmware/nvidia/\* usr/share/man/\*!' /etc/pacman.conf
 info "Making pacman read drop-in configuration from /etc/pacman.conf.d"
 mkdir -p /etc/pacman.conf.d
 grep -q 'Include = /etc/pacman.conf.d/\*.conf' /etc/pacman.conf || \
 	echo 'Include = /etc/pacman.conf.d/*.conf' >> /etc/pacman.conf
 # pacman complains when glob does not match anything
 touch /etc/pacman.conf.d/empty.conf
+info "Disabling extraction of unneded files from packages"
+echo '[options]
+NoExtract = usr/lib/firmware/nvidia/*
+NoExtract = usr/share/man/*
+NoExtract = usr/share/info/*' > /etc/pacman.conf.d/00-noextract.conf
 info "Enabling multilib repository"
-echo '
-[multilib]
+echo '[multilib]
 Include = /etc/pacman.d/mirrorlist' > /etc/pacman.conf.d/10-multilib.conf
 pacman --noconfirm -Sy
 
@@ -380,7 +382,8 @@ cat "$init_out" "$busybox" "$script" "$utils" > /opt/conty/init
 rm "$init_out"
 
 info "Removing unneeded files"
-rm -r /opt/conty/utils "$utils"
+rm -rf /opt/conty/utils "$utils"
+rm -rf /usr/share/man /usr/share/info
 
 info "Removing unused package dependencies"
 pacman -Qqtd | pacman --noconfirm -Rnsu -
