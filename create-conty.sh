@@ -112,10 +112,12 @@ if [ -z "$INSIDE_BOOTSTRAP" ]; then
 
 	info "Bootstrap finished successfully"
 	run_util() {
+		exe="$1" && shift
 		if [ -z "$USE_SYS_UTILS" ]; then
-			set -- env PATH="$bootstrap/bin:$PATH" LD_PRELOAD_PATH="$bootstrap/lib" "$@"
+			"$bootstrap"/usr/lib/ld-linux-x86-64.so.2 --library-path "$bootstrap"/usr/lib "$bootstrap/bin/$exe" "$@"
+		else
+			"$exe" "$@"
 		fi
-		"$@"
 	}
 
 	stage "Building image from bootstrap"
@@ -270,7 +272,6 @@ fi
 if [ "${#PACKAGES[@]}" -ne 0 ]; then
 	stage "Installing packages defined in settings.sh"
 	info "Checking if packages are present in the repos"
-	declare -a missing_packages
 	mapfile -t missing_packages < <(comm -23 \
 										 <(printf '%s\n' "${PACKAGES[@]}" | sort -u) \
 										 <(pacman -Slq | sort -u))
@@ -290,7 +291,6 @@ fi
 if [ "${#AUR_PACKAGES[@]}" -ne 0 ]; then
 	stage "Installing AUR packages defined in settings.sh"
 	info "Checking if packages are present in AUR"
-	declare -a missing_packages
 	mapfile -t missing_packages < <(comm -23 \
 										 <(printf '%s\n' "${AUR_PACKAGES[@]}" | sort -u) \
 										 <(curl -s 'https://aur.archlinux.org/packages.gz' \
@@ -334,18 +334,15 @@ ldd_tree() {
 
 stage "Creating init script"
 packages=(busybox bubblewrap squashfuse squashfs-tools musl gcc)
-[ -n "$USE_DWARFS" ] && packages+=(dwarfs)
-declare -a needed_packages
-mapfile -t needed_packages < <(comm -23 \
-									<(printf '%s\n' "${packages[@]}" | sort -u) \
-									<(pacman -Qq | sort -u))
 info "Installing required packages"
-if [ -z "$ENABLE_CHAOTIC_AUR" ]; then
-	[ -n "$USE_DWARFS" ] && install_aur_packages dwarfs
+if [ -n "$USE_DWARFS"  ]; then
+	if [ -n "$ENABLE_CHAOTIC_AUR" ]; then
+		packages+=(dwarfs)
+	else
+		install_aur_packages dwarfs
+	fi
 fi
-if [ "${#needed_packages}" -ne 0 ]; then
-	pacman --needed --noconfirm -S "${needed_packages[@]}"
-fi
+pacman --needed --noconfirm -S "${packages[@]}"
 
 executables=(bwrap squashfuse mksquashfs)
 [ -n "$USE_DWARFS" ] && executables+=(dwarfs mkdwarfs)
@@ -387,11 +384,8 @@ done
 cat "$init_out" "$busybox" "$script" "$utils" > /opt/conty/init
 rm "$init_out"
 
-info "Removing unneeded packages & files"
+info "Removing unneeded files"
 rm -r /opt/conty/utils "$utils"
-# if [ "${#needed_packages[@]}" -ne 0 ]; then
-# 	pacman --noconfirm -Rsu "${needed_packages[@]}"
-# fi
 
 stage "Clearing pacman cache"
 rm -rf /var/cache/pacman/pkg

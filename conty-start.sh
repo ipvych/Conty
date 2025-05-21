@@ -47,8 +47,8 @@ conty_data_home="${XDG_DATA_HOME:-$HOME/.local/share}/conty"
 persist_home_dir="${HOME_DIR:-$conty_data_home/home}"
 mount_point="${CUSTOM_MNT:-$conty_data_home/mnt_$script_md5}"
 
+utils_dir="$conty_data_home/utils"
 if [ -z "$USE_SYS_UTILS" ]; then
-	utils_dir="$conty_data_home/utils"
 	if [ ! -d "$utils_dir" ]; then
 		mkdir -p "$utils_dir"
 		tail -c +"$((utils_offset + 1))" "$conty" | head -c "$utils_size" \
@@ -341,8 +341,8 @@ rebuild() {
 cleanup_done=
 cleanup() {
 	[ -n "$cleanup_done" ] && return
-	run_util fusermount"$fuse_version" -uz "$mount_point" 2>/dev/null || \
-		run_util umount --lazy "$mount_point" 2>/dev/null
+	fusermount"$fuse_version" -uz "$mount_point" 2>/dev/null || \
+		umount --lazy "$mount_point" 2>/dev/null
 
     if [ -z "$(ls "$mount_point" 2>/dev/null)" ]; then
         rm -rf "$mount_point"
