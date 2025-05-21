@@ -80,7 +80,7 @@ DEFAULT_MIRRORS=(
 # Set this to any value to use reflector when building bootstrap to fetch
 # up to date mirrors. Reflector will be called with provided args and write
 # mirrorlist to /etc/pacman.d/mirrorlist
-USE_REFLECTOR=1
+USE_REFLECTOR=
 REFLECTOR_ARGS=(--verbose --latest 5 --protocol https --score 10 --sort rate)
 
 # Enable this variable to use the system-wide mksquashfs/mkdwarfs instead
