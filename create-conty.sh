@@ -343,10 +343,12 @@ info "Installing required packages"
 if [ -z "$ENABLE_CHAOTIC_AUR" ]; then
 	[ -n "$USE_DWARFS" ] && install_aur_packages dwarfs
 fi
-pacman --needed --noconfirm -S "${needed_packages[@]}"
+if [ "${#needed_packages}" -ne 0 ]; then
+	pacman --needed --noconfirm -S "${needed_packages[@]}"
+fi
 
-executables=(bwrap squashfuse unsquashfs)
-[ -n "$USE_DWARFS" ] && executables+=(dwarfs dwarfsextract mkdwarfs)
+executables=(bwrap squashfuse mksquashfs)
+[ -n "$USE_DWARFS" ] && executables+=(dwarfs mkdwarfs)
 mkdir -p /opt/conty/utils/bin
 for e in "${executables[@]}"; do
 	cp -L "$(command -v "$e")" /opt/conty/utils/bin
@@ -387,7 +389,9 @@ rm "$init_out"
 
 info "Removing unneeded packages & files"
 rm -r /opt/conty/utils "$utils"
-pacman --noconfirm -Rsu "${needed_packages[@]}"
+# if [ "${#needed_packages[@]}" -ne 0 ]; then
+# 	pacman --noconfirm -Rsu "${needed_packages[@]}"
+# fi
 
 stage "Clearing pacman cache"
 rm -rf /var/cache/pacman/pkg
@@ -401,10 +405,9 @@ stage "Creating files and directories for application compatibility"
 # Create some empty files and directories
 # This is needed for bubblewrap to be able to bind real files/dirs to them
 # later in the conty-start.sh script
-mkdir -p /media /initrd /usr/share/steam/compatibilitytools.d
+mkdir -p /media /initrd
 touch /etc/asound.conf
 touch /etc/localtime
-chmod 755 /root
 
 stage "Generating install info"
 info "Writing list of all installed packages to /pkglist.x86_64.txt"
