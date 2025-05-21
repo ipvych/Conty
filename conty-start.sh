@@ -194,7 +194,7 @@ run_bwrap () {
 	rm "$args_file"
 }
 
-cmd_help() {
+show_help() {
 	cat <<EOF
 $conty_name $script_version
 
@@ -252,7 +252,7 @@ automatically run wine during launch.
 EOF
 }
 
-cmd_mount_image() {
+mount_image() {
 	[ -n "$CUSTOM_MNT" ] && cleanup_done=1 && return
 	mountpoint "$mount_point" >/dev/null 2>&1 && return
 	mkdir -p "$mount_point"
@@ -298,16 +298,6 @@ cmd_mount_image() {
 	fi
 }
 
-cmd_show_image_version() {
-	cmd_mount_image
-	cat "$mount_point"/version
-}
-
-cmd_run() {
-	cmd_mount_image
-	run_bwrap "$@"
-}
-
 cleanup_done=
 cleanup() {
 	[ -n "$cleanup_done" ] && return
@@ -321,10 +311,11 @@ cleanup() {
 }
 trap 'cleanup &' EXIT
 
+cmd='run_bwrap'
 if [ "$conty_name" != "$script_name" ]; then
-	cmd_run "$script_name" "$@"
+	set -- -- "$script_name" "$@"
 elif [ "$#" -eq 0 ]; then
-	cmd_help
+	show_help
 	exit 1
 else
 	while getopts 'nsdepmhHV-' opt; do
@@ -334,15 +325,17 @@ else
 			d) ENABLE_DBUS=1;;
 			e) KEEP_ENV=1;;
 			p) PERSIST_HOME=1;;
-			m) cmd_mount_image; cleanup_done=1; exit ;;
-			h) cmd_help; exit ;;
+			m) mount_image; cleanup_done=1; exit ;;
+			h) show_help; exit ;;
 			H) exec bwrap --help ;;
-			V) cmd_show_image_version; exit ;;
-			-|*) break
+			V) set -- -- cat "$mount_point"/version; break ;;
+			# Handling '-' is redundant, but let's be explicit
+			-|*) break ;;
 		esac
 	done
 	shift $((OPTIND-1))
-	cmd_run "$@"
 fi
 
+mount_image
+"$cmd" "$@"
 cleanup
