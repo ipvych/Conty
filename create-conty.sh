@@ -31,13 +31,13 @@ if [ -z "$INSIDE_BOOTSTRAP" ]; then
 	NESTING_LEVEL=0
 
 	stage "Preparing bootstrap"
+	BUILD_DIR="${BUILD_DIR:-build}"
 	build_dir="$(realpath "$BUILD_DIR")"
 	bootstrap="$build_dir"/root.x86_64
 	conty_files='init.c create-conty.sh conty-start.sh settings.sh'
 	mkdir -p "$build_dir"
 	# shellcheck disable=2086 # Using normal variable because arrays cannot be exported
 	cp $conty_files "$build_dir"
-
 	cd "$build_dir"
 
 	info "Downloading Arch Linux bootstrap sha256sum from $BOOTSTRAP_SHA256SUM_FILE_URL"
