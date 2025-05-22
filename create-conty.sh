@@ -29,16 +29,21 @@ if [ -z "$INSIDE_BOOTSTRAP" ]; then
 	NESTING_LEVEL=0
 
 	stage "Preparing bootstrap"
+	script_dir="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 	BUILD_DIR="${BUILD_DIR:-build}"
 	build_dir="$(realpath "$BUILD_DIR")"
 	bootstrap="$build_dir"/root.x86_64
 	conty_files='init.c create-conty.sh conty-start.sh settings.sh'
 	mkdir -p "$build_dir"
+
+	declare -a files
 	# shellcheck disable=2086 # Using normal variable because arrays cannot be exported
-	cp $conty_files "$build_dir"
+	mapfile -t files < <(printf "$script_dir/%s\n" $conty_files)
+	cp "${files[@]}" "$build_dir"
 	if [ -f "$build_dir"/settings_override.sh ]; then
 	   mv "$build_dir"/settings_override.sh "$build_dir"/settings.sh
 	fi
+
 	cd "$build_dir"
 
 	info "Downloading Arch Linux bootstrap sha256sum from $BOOTSTRAP_SHA256SUM_FILE_URL"
@@ -102,7 +107,7 @@ if [ -z "$INSIDE_BOOTSTRAP" ]; then
 			   /opt/conty/create-conty.sh
 	}
 
-	export bootstrap conty_files
+	export bootstrap conty_files HOST_PACMAN_CACHE_DIR
 	export -f prepare_bootstrap run_bootstrap
 	info "Entering bootstrap namespace"
 	if ! run_unshared bash -c "prepare_bootstrap && run_bootstrap"; then

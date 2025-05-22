@@ -323,18 +323,16 @@ mount_image() {
 }
 
 rebuild() {
-	local build_dir cwd
-	build_dir="${BUILD_DIR:-./conty_build}"
-	mkdir -p "$build_dir"
+	local BUILD_DIR
+	BUILD_DIR="${BUILD_DIR:-$(pwd)/conty_build}"
+	mkdir -p "$BUILD_DIR"
 	if [ -f "$conty_config_home"/settings.sh ]; then
-		cp "$conty_config_home"/settings.sh "$build_dir"/settings_override.sh
+		cp "$conty_config_home"/settings.sh "$BUILD_DIR"/settings_override.sh
 	fi
-	cwd="$(pwd)"
-	cd "$mount_point"/opt/conty
-	BUILD_DIR="$build_dir" "$mount_point"/opt/conty/create-conty.sh
-	cp "$build_dir"/conty.sh "$cwd"
+	BUILD_DIR="$BUILD_DIR" "$mount_point"/opt/conty/create-conty.sh
+	mv "$BUILD_DIR"/conty.sh "$(pwd)"
 	if [ -n "$REBUILD_CLEAR" ]; then
-		unshare --user --map-auto --map-root-user rm -rf "$build_dir"
+		unshare --user --map-auto --map-root-user rm -rf "$BUILD_DIR"
 	fi
 }
 
