@@ -230,7 +230,7 @@ Rebuild:
         This will copy files used to build conty that are included in the image
         into build directory and produce new conty executable using them. Build
         settings, if needed can be customized by creating
-        $conty_config_home/settings.sh file which will replace setings file from
+        ~/.config/conty/settings.sh file which will replace setings file from
         the image.
         Rebuild command uses host system utilities to work and will error out
         if some of them are not available with list of required dependencies.
