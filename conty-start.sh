@@ -19,7 +19,7 @@ if [ -n "$ALLOW_ROOT" ] && [ "$(id -u)" -eq 0 ]; then
 fi
 
 # Conty version
-script_version="1.28"
+script_version="2.0.0"
 
 # Environment variables used by conty to unset before running bwrap
 conty_variables='CONTY_PROGRAM_SIZE CONTY_BUSYBOX_SIZE CONTY_SCRIPT_SIZE CONTY_UTILS_SIZE
